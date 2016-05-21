@@ -10,6 +10,7 @@ import theano
 import numpy as np
 
 leaky_rectify = LeakyRectify(0.2)
+#leaky_rectify = rectify
 
 def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
     x_in = layers.InputLayer((None, c, w, h), name="input")
@@ -25,7 +26,9 @@ def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
         num_filters=64,
         filter_size=(5, 5),
         stride=2,
-        nonlinearity=leaky_rectify
+        nonlinearity=leaky_rectify,
+        #W=init.Normal(0.02)
+        #W=init.HeNormal(gain='relu')
     )        
     X = ConvCondConcat((X, y_in))
     
@@ -34,19 +37,27 @@ def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
         num_filters=64,
         filter_size=(5, 5),
         stride=2,
-        nonlinearity=leaky_rectify
+        nonlinearity=leaky_rectify,
+        #W=init.Normal(0.02),
+        #W=init.HeNormal(gain='relu')
+
     ) 
     X = ConvCondConcat((X, y_in))
     X = layers.DenseLayer(
         X, 
         1024,
-        nonlinearity=rectify
+        nonlinearity=leaky_rectify,
+        #W=init.Normal(0.02)
+        #W=init.HeNormal(gain='relu')
+
     )
     X = DenseCondConcat((X, y_in))
     X = layers.DenseLayer(
         X,
         1,
-        nonlinearity=sigmoid
+        nonlinearity=sigmoid,
+        #W=init.Normal(0.02)
+        #W=init.HeNormal()
     )
     out_discr = X
 
@@ -56,13 +67,18 @@ def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
     Z = layers.DenseLayer(
         Z,
         1024,
-        nonlinearity=rectify
+        nonlinearity=rectify,
+        #W=init.Normal(0.02),
+        #W=init.HeNormal(gain='relu')
     )
     Z = DenseCondConcat((Z, y_in))
     Z = layers.DenseLayer(
         Z,
         128*7*7,
-        nonlinearity=rectify
+        nonlinearity=rectify,
+        #W=init.Normal(0.02),
+        #W=init.HeNormal(gain='relu')
+
     )
 
     Z = layers.ReshapeLayer(
@@ -75,13 +91,18 @@ def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
         num_filters=64,
         filter_size=(5, 5),
         stride=2,
-        nonlinearity=linear
+        nonlinearity=linear,
+        #W=init.Normal(0.02),
+        #W=init.HeNormal()
+
     )
     Z = layers.Conv2DLayer(
         Z,
         num_filters=64,
         filter_size=(5 - 1, 5 - 1),
-        nonlinearity=rectify
+        nonlinearity=rectify,
+        #W=init.Normal(0.02),
+        #W=init.HeNormal(gain='relu')
     )
     Z = ConvCondConcat((Z, y_in))
     Z = Deconv2DLayer(
@@ -89,14 +110,19 @@ def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
         num_filters=c,
         filter_size=(5, 5),
         stride=2,
-        nonlinearity=linear
+        nonlinearity=linear,
+        W=init.HeNormal(gain='relu')
+        #W=init.Normal(0.02)
+
     )
     Z = layers.Conv2DLayer(
         Z,
         num_filters=c,
         filter_size=(5 - 1, 5 - 1),
-        nonlinearity=tanh
+        nonlinearity=tanh,
+        #W=init.Normal(0.02)
     )
+
     out_gen = Z
     return x_in, y_in, z_in, out_gen, out_discr
 
@@ -123,7 +149,7 @@ def dcgan_28x28(z_dim=100, w=28, h=28, c=1):
     X = layers.DenseLayer(
         X, 
         1024,
-        nonlinearity=rectify
+        nonlinearity=leaky_rectify
     )
     X = layers.DenseLayer(
         X,
@@ -367,7 +393,7 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
         Z,
         num_filters=c,
         filter_size=(filter_size - 1, filter_size - 1),
-        nonlinearity=linear,
+        nonlinearity=tanh,
         #W=init.Normal(0.02)
     )
     out_gen = Z
@@ -398,8 +424,8 @@ def cond_dcgan(z_dim=100, w=64, h=64, c=1, nb_outputs=10,
             nonlinearity=leaky_rectify,
             #W=init.Normal(0.02)
         ) 
-        if do_batch_norm:
-            X = batch_norm(X)     
+        #if do_batch_norm:
+        #    X = batch_norm(X)     
         num_filters_d *= 2
     X = layers.DenseLayer(
         X,
@@ -433,6 +459,7 @@ def cond_dcgan(z_dim=100, w=64, h=64, c=1, nb_outputs=10,
             filter_size=(filter_size, filter_size),
             stride=2,
             nonlinearity=linear,
+            W=init.HeNormal(0.02),
             #W=init.Normal(0.02)
         )
         #if do_batch_norm:
@@ -471,7 +498,7 @@ def dcgan_small(z_dim=100, w=28, h=28, c=1):
     return dcgan(z_dim=100, w=w, h=h, c=c, num_filters_g=128, num_filters_d=32, start_w=4, start_h=4, filter_size=5, do_batch_norm=True)
 
 def dcgan_standard(z_dim=100, w=64, h=64, c=3):
-    return dcgan(z_dim=z_dim, w=w, h=h, c=c, num_filters_g=1024, num_filters_d=32, start_w=4, start_h=4, filter_size=5, do_batch_norm=True)
+    return dcgan(z_dim=z_dim, w=w, h=h, c=c, num_filters_g=1024, num_filters_d=128, start_w=4, start_h=4, filter_size=5, do_batch_norm=True)
 
 def cond_dcgan_small(z_dim=100, w=64, h=64, c=1, output_dim=10):
     return cond_dcgan(z_dim=z_dim, w=w, h=h, c=c, output_dim=output_dim, start_nb_filters=128, start_w=4, start_h=4, filter_size=5, do_batch_norm=True)

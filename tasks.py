@@ -39,6 +39,7 @@ def train(outdir):
 	rng = np.random.RandomState(1234)
 
 	def preprocess_input(X):
+		#X = X - 0.5
 		return X.reshape((X.shape[0], c, w, h))
 
 	def preprocess_output(y):
@@ -60,10 +61,8 @@ def train(outdir):
 	X_gen = layers.get_output(out_gen, {z_in: Z, y_in: Y} )
 
 	p_real = layers.get_output(out_discr, {x_in: X_real, y_in: Y} )
-	#p_real = theano.tensor.clip(p_real, 0.001, 0.999)
 
 	p_gen = layers.get_output(out_discr, {x_in: X_gen, y_in: Y} )
-	#p_gen = theano.tensor.clip(p_gen, 0.001, 0.999)
 
 	# cost of discr : predict 0 for gen and 1 for real
 
@@ -108,10 +107,10 @@ def train(outdir):
 		for train_X, train_y in tqdm(iterate_minibatches(data_train.X, data_train.y, batch_size)):
 			train_Z = floatX(rng.uniform(-1., 1., size=(len(train_X), z_dim)))
 			if n_updates % (nb_discr_updates + 1) == 0:
-				total_g_loss += sum(train_g(train_X, train_Z, train_y))
+				total_g_loss += (train_g(train_X, train_Z, train_y))[0]
 				nb_g_updates += 1
 			else:
-				total_d_loss += sum(train_d(train_X, train_Z, train_y))
+				total_d_loss += (train_d(train_X, train_Z, train_y))[1]
 				nb_d_updates += 1
 			n_updates += 1
 		stats = OrderedDict()
@@ -154,7 +153,7 @@ def traincollection(outdir, pattern, model_name, w, h, c, data_in_memory):
 	c = int(c)
 	# assume w and h are power of two
 
-	lr_initial = 0.0002
+	lr_initial = 0.00002
 	b1 = 0.5
 	l2 = 1e-5
 	nb_epochs = 1000
@@ -185,7 +184,7 @@ def traincollection(outdir, pattern, model_name, w, h, c, data_in_memory):
 			else:
 				X_rescaled[i, :, :, 0] = resize_input(Xi, (w, h))
 		X_rescaled = floatX(X_rescaled) / X_rescaled.max()
-		X_rescaled = X_rescaled * 2 - 1
+		#X_rescaled = X_rescaled * 2 - 1
 		print(X_rescaled.min(), X_rescaled.max())
 		return X_rescaled
 
@@ -266,13 +265,12 @@ def traincollection(outdir, pattern, model_name, w, h, c, data_in_memory):
 				train_X = rescale_input(train_X)
 				train_X = preprocess_input(train_X)
 			train_Z = floatX(rng.uniform(-1., 1., size=(len(train_X), z_dim)))
-			#if n_updates % 2 == 0:
-			total_d_loss += train_d(train_X, train_Z)[1]
-			nb_g_updates += 1
-			#else:
-			total_g_loss += train_g(train_X, train_Z)[0]
-			nb_d_updates += 1
-			
+			if n_updates % 2 == 0:
+				total_d_loss += train_d(train_X, train_Z)[1]
+				nb_g_updates += 1
+			else:
+				total_g_loss += train_g(train_X, train_Z)[0]
+				nb_d_updates += 1
 			n_updates += 1
 		stats = OrderedDict()
 		stats['epoch'] = epoch
@@ -303,8 +301,8 @@ def traincollection(outdir, pattern, model_name, w, h, c, data_in_memory):
 			plt.plot(l)
 			plt.savefig(os.path.join(outdir, 'd_loss.png'))
 			plt.close(fig)
-		if epoch > 12:
-			lr.set_value(floatX(np.array(lr.get_value() * 0.95)))
+		#if epoch > 12:
+		#	lr.set_value(floatX(np.array(lr.get_value() * 0.95)))
 
 def save_model(builder, args, net_gen, net_discr, filename):
 	data = dict(
@@ -327,5 +325,6 @@ def load_model(filename):
 	return gen, discr
 
 if __name__ == '__main__':
+	main.add_command(train)
 	main.add_command(traincollection)
 	main()
