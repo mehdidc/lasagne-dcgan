@@ -2,6 +2,10 @@
 import numpy as np
 import os
 
+import lasagne
+import theano.tensor as T
+import theano
+
 def floatX(x):
     return x.astype(np.float32)
 
@@ -15,7 +19,7 @@ def to_categorical(y, nb_classes=None):
     for i in range(len(y)):
         Y[i, y[i]] = 1.
     return Y
-    
+
 def iterate_minibatches(inputs, targets=None, batchsize=128, shuffle=False):
     if targets is not None:
         assert len(inputs) == len(targets)
@@ -30,14 +34,14 @@ def iterate_minibatches(inputs, targets=None, batchsize=128, shuffle=False):
         if targets is not None:
             yield inputs[excerpt], targets[excerpt]
         else:
-            yield inputs[excerpt] 
+            yield inputs[excerpt]
 
 def mkdir_path(path):
     if not os.access(path, os.F_OK):
         os.makedirs(path)
 
 def dispims(M, border=0, bordercolor=[0.0, 0.0, 0.0], shape = None):
-    """ Display an array of rgb images. 
+    """ Display an array of rgb images.
     The input array is assumed to have the shape numimages x numpixelsY x numpixelsX x 3
     """
     bordercolor = np.array(bordercolor)[None, None, :]
@@ -55,7 +59,7 @@ def dispims(M, border=0, bordercolor=[0.0, 0.0, 0.0], shape = None):
     else:
         n0 = shape[0]
         n1 = shape[1]
-        
+
     im = np.array(bordercolor)*np.ones(
                              ((height+border)*n1+border,(width+border)*n0+border, 1),dtype='<f8')
     for i in range(n0):
@@ -76,3 +80,42 @@ def scale_to_unit_interval(ndar, eps=1e-8):
     ndar -= ndar.min()
     ndar *= 1.0 / (ndar.max() + eps)
     return ndar
+
+
+class Deconv2DLayer(lasagne.layers.Layer):
+
+    def __init__(self, incoming, num_filters, filter_size, stride=1, pad=0,
+            nonlinearity=lasagne.nonlinearities.rectify, **kwargs):
+        super(Deconv2DLayer, self).__init__(incoming, **kwargs)
+        self.num_filters = num_filters
+        self.filter_size = lasagne.utils.as_tuple(filter_size, 2, int)
+        self.stride = lasagne.utils.as_tuple(stride, 2, int)
+        self.pad = lasagne.utils.as_tuple(pad, 2, int)
+        self.W = self.add_param(lasagne.init.Orthogonal(),
+                (self.input_shape[1], num_filters) + self.filter_size,
+                name='W')
+        self.b = self.add_param(lasagne.init.Constant(0),
+                (num_filters,),
+                name='b')
+        if nonlinearity is None:
+            nonlinearity = lasagne.nonlinearities.identity
+        self.nonlinearity = nonlinearity
+
+    def get_output_shape_for(self, input_shape):
+        shape = tuple(i*s - 2*p + f - 1
+                for i, s, p, f in zip(input_shape[2:],
+                                      self.stride,
+                                      self.pad,
+                                      self.filter_size))
+        return (input_shape[0], self.num_filters) + shape
+
+    def get_output_for(self, input, **kwargs):
+        op = T.nnet.abstract_conv.AbstractConv2d_gradInputs(
+            imshp=self.output_shape,
+            kshp=(self.input_shape[1], self.num_filters) + self.filter_size,
+            subsample=self.stride, border_mode=self.pad)
+        conved = op(self.W, input, self.output_shape[2:])
+        if self.b is not None:
+            conved += self.b.dimshuffle('x', 0, 'x', 'x')
+        return self.nonlinearity(conved)
+
