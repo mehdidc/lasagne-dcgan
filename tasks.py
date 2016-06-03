@@ -18,8 +18,10 @@ from tqdm import tqdm
 def main():
     pass
 
+
 @click.command()
 @click.option('--outdir', default='', help='Out directory', required=False)
+@click.option('--data', default='mnist', help='mnist/fonts', required=False)
 @click.option('--cond/--no-cond', default=True, help='Conditional adversarial net', required=False)
 def train(outdir, cond):
     from data import load_data
@@ -364,6 +366,6 @@ def load_model(filename):
     return gen, discr
 
 if __name__ == '__main__':
-    main.add_command(train)
     main.add_command(traincollection)
+    main.add_command(train)
     main()
