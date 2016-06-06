@@ -2,28 +2,35 @@
 from lasagnekit.datasets.mnist import MNIST
 from lasagnekit.datasets.fonts import Fonts
 from lasagnekit.datasets.helpers import split
+from lasagnekit.datasets.rescaled import Rescaled
 
 def load_data(name, **kw):
     if name == 'mnist':
         data = MNIST()
-        data.shape = (1, 28, 28)
         data.load()
+        data.shape = (28, 28, 1)
     if name == 'fonts':
-        data = Fonts()
-        data.shape = (1, 64, 64)
+        data = Fonts(labels_kind='letters')
         data.load()
+        data.shape = (64, 64, 1)
+    if name == 'fonts_28x28':
+        data = Fonts(labels_kind='letters')
+        data = Rescaled(data, (28, 28))
+        data.load()
+        data.shape = (28, 28, 1)
+    data.X = data.X.reshape((data.X.shape[0],) + data.shape)
     return split_data(data, **kw)
 
 def split_data(data, training_subset=None , valid_subset=None, valid_ratio=0.16667):
     c, w, h = data.shape
     def preprocess(data):
-        data = data * 2 - 1
+        #data = data * 2 - 1
         return data.reshape((data.shape[0], c, w, h))
     train_full = data
     train_full.X = preprocess(train_full.X)
-
     train, valid = split(train_full, test_size=valid_ratio) # 10000 examples in validation set
-
+    train.shape = data.shape
+    valid.shape = data.shape
     if training_subset is not None:
         nb = int(training_subset * len(train.X))
         print('training on a subset of training data of size : {}'.format(nb))

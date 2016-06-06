@@ -2,8 +2,8 @@ from lasagne import layers, init
 from lasagne.nonlinearities import rectify, sigmoid, linear, tanh, LeakyRectify, elu
 import theano.tensor as T
 from layers import DenseCondConcat, ConvCondConcat
-from helpers import Deconv2DLayer
-from lasagne.layers import batch_norm
+from helpers import Deconv2DLayer, Deconv2DLayerScaler
+from lasagne.layers import batch_norm, Conv2DLayer
 
 import theano
 import numpy as np
@@ -26,22 +26,26 @@ def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
         filter_size=(5, 5),
         stride=2,
         nonlinearity=leaky_rectify,
+        W=init.Normal(0.02)
     )
     X = ConvCondConcat((X, y_in))
 
     X = layers.Conv2DLayer(
         X,
-        num_filters=64,
+        num_filters=128,
         filter_size=(5, 5),
         stride=2,
         nonlinearity=leaky_rectify,
+        W=init.Normal(0.02)
     )
     X = batch_norm(X)
     X = ConvCondConcat((X, y_in))
     X = layers.DenseLayer(
         X,
-        1024,
+        128,
         nonlinearity=leaky_rectify,
+        W=init.Normal(0.02)
+
     )
     X = batch_norm(X)
     X = DenseCondConcat((X, y_in))
@@ -49,6 +53,8 @@ def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
         X,
         1,
         nonlinearity=sigmoid,
+        W=init.Normal(0.02)
+
     )
     out_discr = X
 
@@ -59,6 +65,8 @@ def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
         Z,
         1024,
         nonlinearity=rectify,
+        W=init.Normal(0.02)
+
     )
     Z = batch_norm(Z)
     Z = DenseCondConcat((Z, y_in))
@@ -66,6 +74,8 @@ def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
         Z,
         128*7*7,
         nonlinearity=rectify,
+        W=init.Normal(0.02)
+
     )
 
     Z = batch_norm(Z)
@@ -82,6 +92,8 @@ def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
         stride=2,
         pad=(5 - 1)/2,
         nonlinearity=rectify,
+        W=init.Normal(0.02),
+        #func='alec'
 
     )
     Z = batch_norm(Z)
@@ -93,6 +105,9 @@ def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
         stride=2,
         pad=(5-1)/2,
         nonlinearity=tanh,
+        W=init.Normal(0.02),
+        #W=init.GlorotUniform()
+        #func='alec'
     )
     out_gen = Z
     return x_in, y_in, z_in, out_gen, out_discr
@@ -264,9 +279,10 @@ def dcgan_64x64(z_dim=100, w=64, h=64, c=1):
 
 
 def dcgan(z_dim=100, w=64, h=64, c=1,
-          num_filters_g=1024,
-          num_filters_d=128,
-          start_w=4, start_h=4, filter_size=5, do_batch_norm=True):
+          num_filters_g=1024, # start by this and divide by 2 after each layer (stop at num_filters_d)
+          num_filters_d=128, # start  by this and double after each layer (stop at num_filters_g)
+          start_w=4, start_h=4, filter_size=5, do_batch_norm=True,
+          scale=0.02):
 
     assert 2**int(np.log2(w)) == w
     assert 2**int(np.log2(h)) == h
@@ -286,15 +302,19 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
             filter_size=(filter_size, filter_size),
             stride=2,
             nonlinearity=nonlin_discr,
+            W=init.Normal(mean=0, std=scale)  # 1 for gain
+            #W=init.Orthogonal(gain='relu'),
         )
         if do_batch_norm and i > 0:
-             X = batch_norm(X)
+            X = batch_norm(X)
         num_filters_d *= 2
     X = batch_norm(X)
     X = layers.DenseLayer(
         X,
         1,
-        nonlinearity=sigmoid
+        W=init.Normal(std=scale),
+        nonlinearity=sigmoid,
+        #W=init.Orthogonal(),
     )
     out_discr = X
 
@@ -302,7 +322,9 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
     Z = layers.DenseLayer(
         z_in,
         num_filters_g*start_w*start_h,
-        nonlinearity=nonlin_gen
+        nonlinearity=nonlin_gen,
+        W=init.Normal(std=scale)
+        #W=init.Orthogonal(gain='relu'),
     )
     if do_batch_norm:
         Z = batch_norm(Z)
@@ -318,7 +340,8 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
             filter_size=(filter_size, filter_size),
             stride=2,
             nonlinearity=nonlin_gen,
-            pad=(filter_size - 1) / 2
+            pad=(filter_size - 1) / 2,
+            W=init.Normal(mean=0, std=scale)  #1 for gain
         )
         if do_batch_norm:
             Z = batch_norm(Z)
@@ -327,19 +350,27 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
         num_filters=c,
         filter_size=(filter_size, filter_size),
         stride=2,
-        nonlinearity=tanh,
-        pad=(filter_size - 1) / 2
+        nonlinearity=sigmoid,
+        pad=(filter_size - 1) / 2,
+        W=init.Normal(std=scale)  # 1 for gain
     )
     out_gen = Z
     return x_in, z_in, out_gen, out_discr
 
 
 def dcgan_small(z_dim=100, w=28, h=28, c=1):
-    return dcgan(z_dim=100, w=w, h=h, c=c, num_filters_g=128, num_filters_d=32, start_w=4, start_h=4, filter_size=5, do_batch_norm=True)
+    return dcgan(z_dim=100, w=w, h=h,
+                 c=c,
+                 num_filters_g=64, num_filters_d=16,
+                 start_w=4, start_h=4,
+                 filter_size=5, do_batch_norm=True)
 
 
 def dcgan_standard(z_dim=100, w=64, h=64, c=3):
-    return dcgan(z_dim=z_dim, w=w, h=h, c=c, num_filters_g=1024, num_filters_d=128, start_w=4, start_h=4, filter_size=5, do_batch_norm=True)
+    return dcgan(z_dim=z_dim, w=w, h=h, c=c,
+                 num_filters_g=1024, num_filters_d=128,
+                 start_w=4, start_h=4, filter_size=5,
+                 do_batch_norm=True)
 
 if __name__ == '__main__':
 
@@ -347,7 +378,7 @@ if __name__ == '__main__':
     x_in, y_in, z_in, out_gen, out_discr = cond_dcgan_28x28(z_dim=100, c=1, nb_outputs=10)
 
     X = T.tensor4()
-    Y =  T.matrix()
+    Y = T.matrix()
     Z = T.matrix()
 
     gen = theano.function([Z, Y], layers.get_output(out_gen, {z_in: Z, y_in: Y} ))

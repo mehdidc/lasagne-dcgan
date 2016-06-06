@@ -5,6 +5,18 @@ import os
 import lasagne
 import theano.tensor as T
 import theano
+from lasagne.layers import Deconv2DLayer as DeconvLasagne
+from lasagne.layers import batch_norm, Conv2DLayer
+
+import theano
+import theano.tensor as T
+from theano.sandbox.cuda.basic_ops import (as_cuda_ndarray_variable,
+                                           host_from_gpu,
+                                           gpu_contiguous, HostFromGpu,
+                                           gpu_alloc_empty)
+from theano.sandbox.cuda.dnn import GpuDnnConvDesc, GpuDnnConv, GpuDnnConvGradI, dnn_conv, dnn_pool
+from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
+
 
 def floatX(x):
     return x.astype(np.float32)
@@ -26,7 +38,7 @@ def iterate_minibatches(inputs, targets=None, batchsize=128, shuffle=False):
     if shuffle:
         indices = np.arange(len(inputs))
         np.random.shuffle(indices)
-    for start_idx in range(0, len(inputs), batchsize):
+    for start_idx in range(0, len(inputs) - batchsize, batchsize):
         if shuffle:
             excerpt = indices[start_idx:start_idx + batchsize]
         else:
@@ -85,13 +97,15 @@ def scale_to_unit_interval(ndar, eps=1e-8):
 class Deconv2DLayer(lasagne.layers.Layer):
 
     def __init__(self, incoming, num_filters, filter_size, stride=1, pad=0,
-            nonlinearity=lasagne.nonlinearities.rectify, **kwargs):
+                 func='me',
+                 W=lasagne.init.Orthogonal(),
+                 nonlinearity=lasagne.nonlinearities.rectify, **kwargs):
         super(Deconv2DLayer, self).__init__(incoming, **kwargs)
         self.num_filters = num_filters
         self.filter_size = lasagne.utils.as_tuple(filter_size, 2, int)
         self.stride = lasagne.utils.as_tuple(stride, 2, int)
         self.pad = lasagne.utils.as_tuple(pad, 2, int)
-        self.W = self.add_param(lasagne.init.Orthogonal(),
+        self.W = self.add_param(W,
                 (self.input_shape[1], num_filters) + self.filter_size,
                 name='W')
         self.b = self.add_param(lasagne.init.Constant(0),
@@ -100,6 +114,7 @@ class Deconv2DLayer(lasagne.layers.Layer):
         if nonlinearity is None:
             nonlinearity = lasagne.nonlinearities.identity
         self.nonlinearity = nonlinearity
+        self.func = func
 
     def get_output_shape_for(self, input_shape):
         shape = tuple(i*s - 2*p + f - 1
@@ -110,12 +125,41 @@ class Deconv2DLayer(lasagne.layers.Layer):
         return (input_shape[0], self.num_filters) + shape
 
     def get_output_for(self, input, **kwargs):
-        op = T.nnet.abstract_conv.AbstractConv2d_gradInputs(
-            imshp=self.output_shape,
-            kshp=(self.input_shape[1], self.num_filters) + self.filter_size,
-            subsample=self.stride, border_mode=self.pad)
-        conved = op(self.W, input, self.output_shape[2:])
+
+        if self.func == 'me':
+            op = T.nnet.abstract_conv.AbstractConv2d_gradInputs(
+                imshp=self.output_shape,
+                kshp=(self.input_shape[1], self.num_filters) + self.filter_size,
+                subsample=self.stride, border_mode=self.pad)
+            conved = op(self.W, input, self.output_shape[2:])
+        elif self.func == 'alec':
+            conved = deconv_alec(input, self.W, subsample=[self.stride]*2, border_mode=self.pad)
         if self.b is not None:
             conved += self.b.dimshuffle('x', 0, 'x', 'x')
         return self.nonlinearity(conved)
 
+def deconv_alec(X, w, subsample=(1, 1), border_mode=(0, 0), conv_mode='conv'):
+    """ 
+    sets up dummy convolutional forward pass and uses its grad as deconv
+    currently only tested/working with same padding
+    """
+    img = gpu_contiguous(X)
+    kerns = gpu_contiguous(w)
+    desc = GpuDnnConvDesc(border_mode=border_mode, subsample=subsample,
+                          conv_mode=conv_mode)(gpu_alloc_empty(img.shape[0], kerns.shape[1], img.shape[2]*subsample[0], img.shape[3]*subsample[1]).shape, kerns.shape)
+    out = gpu_alloc_empty(img.shape[0], kerns.shape[1], img.shape[2]*subsample[0], img.shape[3]*subsample[1])
+    d_img = GpuDnnConvGradI()(kerns, img, out, desc)
+    return d_img
+
+
+def Deconv2DLayerScaler(incoming, num_filters, filter_size, stride=1, pad=0, nonlinearity=lasagne.nonlinearities.rectify, use_batch_norm=True, **kwargs):
+    l = DeconvLasagne(incoming, num_filters=num_filters, filter_size=filter_size, stride=stride, nonlinearity=nonlinearity, **kwargs)
+    if use_batch_norm:
+        l = batch_norm(l)
+    l = Conv2DLayer(
+         l,
+         num_filters=num_filters,
+         filter_size=(filter_size[0] - 1, filter_size[1] - 1),
+         nonlinearity=nonlinearity,
+    )
+    return l
