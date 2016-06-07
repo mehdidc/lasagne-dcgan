@@ -361,8 +361,9 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
 def dcgan_small(z_dim=100, w=28, h=28, c=1):
     return dcgan(z_dim=100, w=w, h=h,
                  c=c,
-                 num_filters_g=64, num_filters_d=16,
+                 num_filters_g=128, num_filters_d=8,
                  start_w=4, start_h=4,
+                 scale=0.017783,
                  filter_size=5, do_batch_norm=True)
 
 

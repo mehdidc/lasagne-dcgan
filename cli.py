@@ -53,7 +53,7 @@ def train(outdir='.', pattern='', model_name='dcgan',
     batch_size = kw.get('batch_size', 128)
     lr = theano.shared(floatX(np.array(lr_initial)))
     rng = np.random.RandomState(1234)
-    subset_ratio = kw.get('subset_ratio', 0.01)
+    subset_ratio = kw.get('subset_ratio', 1)
     b1 = kw.get('b1', 0.5)
 
     def resize_input(X, wh):
@@ -261,13 +261,48 @@ def hyperjob(run):
         )
         return list(jobs)
 
+    def js2():
+        jobs = (
+            dict(
+                lr=lr,
+                b1=b1,
+                nb_epochs=100,
+                model=dict(scale=scale,
+                           num_filters_g=num_filters_g,
+                           num_filters_d=num_filters_d,
+                           start_w=4,
+                           start_h=4,
+                           filter_size=5,
+                           do_batch_norm=True),
+                subset_ratio=subset_ratio,
+                dataset='fonts',
+                w=32,
+                h=32,
+                c=1,
+                model_name='dcgan')
+            for scale in np.logspace(-4, -1, 5)
+            for num_filters_g in [32, 64, 128]
+            for num_filters_d in [4,  8, 16]
+            for lr in (0.0002,)
+            for b1 in (0.5,)
+            for subset_ratio in (0.01, 0.1, 1)
+        )
+        return list(jobs)
+
+
     def insert_jobs():
+        nb = 0
         jobs = list(js1())
+        nb += insert(js1(), 'js1')
+        nb += insert(js2(), 'js2')
+        return nb
+
+    def insert(jobs, where=''):
         nb = 0
         for content in jobs:
             s = summarize(content)
             outdir = 'results/{}'.format(s)
-            nb += db.safe_add_job(content, outdir=outdir)
+            nb += db.safe_add_job(content, outdir=outdir, where=where)
         return nb
 
     def run_jobs(nb=None):
