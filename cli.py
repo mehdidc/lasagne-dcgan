@@ -228,7 +228,8 @@ def load_model(filename):
 
 @click.command()
 @click.option('--run', default=0, help='nb jobs to run', required=False)
-def hyperjob(run):
+@click.option('--where', default=None, help='where to run', required=False)
+def hyperjob(run, where):
     from lightjob.cli import load_db
     from lightjob.db import SUCCESS, RUNNING, AVAILABLE, PENDING
     from lightjob.utils import summarize
@@ -363,8 +364,11 @@ def hyperjob(run):
             nb += db.safe_add_job(content, outdir=outdir, where=where)
         return nb
 
-    def run_jobs(nb=None):
-        jobs = db.jobs_with(state=AVAILABLE)
+    def run_jobs(nb=None, where=None):
+        kw = {}
+        if where is not None:
+            kw['where'] = where
+        jobs = db.jobs_with(state=AVAILABLE, **kw)
         jobs = list(jobs)
         if nb is not None:
             jobs = jobs[0:nb]
@@ -382,7 +386,7 @@ def hyperjob(run):
     db = load_db()
     nb = insert_jobs()
     print('nb jobs inserted : {}'.format(nb))
-    run_jobs(nb=run)
+    run_jobs(nb=run, where=where)
 
 
 if __name__ == '__main__':
