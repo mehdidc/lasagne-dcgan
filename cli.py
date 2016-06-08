@@ -1,4 +1,4 @@
-from lasagne import layers, updates
+from lasagne import layers, updates, init
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
@@ -203,6 +203,7 @@ def train(outdir='.', pattern='', model_name='dcgan',
         pd.DataFrame({'g_loss': a, 'd_loss': b}).to_csv("{}/stats.csv".format(outdir))
         #if epoch > 12:
         #   lr.set_value(floatX(np.array(lr.get_value() * 0.95)))
+    save_model(builder, builder_args, out_gen, out_discr, model_filename)
     return history
 
 def save_model(builder, args, net_gen, net_discr, filename):

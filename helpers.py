@@ -1,4 +1,4 @@
-
+from lasagne import init
 import numpy as np
 import os
 
@@ -7,6 +7,7 @@ import theano.tensor as T
 import theano
 from lasagne.layers import Deconv2DLayer as DeconvLasagne
 from lasagne.layers import batch_norm, Conv2DLayer
+from lasagne.nonlinearities import linear
 
 import theano
 import theano.tensor as T
@@ -139,7 +140,7 @@ class Deconv2DLayer(lasagne.layers.Layer):
         return self.nonlinearity(conved)
 
 def deconv_alec(X, w, subsample=(1, 1), border_mode=(0, 0), conv_mode='conv'):
-    """ 
+    """
     sets up dummy convolutional forward pass and uses its grad as deconv
     currently only tested/working with same padding
     """
@@ -158,8 +159,14 @@ def Deconv2DLayerScaler(incoming, num_filters, filter_size, stride=1, pad=0, non
         l = batch_norm(l)
     l = Conv2DLayer(
          l,
+         #W=init.Constant(0.),
+         #b=init.Constant(0.),
          num_filters=num_filters,
          filter_size=(filter_size[0] - 1, filter_size[1] - 1),
          nonlinearity=nonlinearity,
     )
+    if use_batch_norm:
+        l = batch_norm(l)
+    #l.params[l.W] = set()
+    #l.params[l.b] = set()
     return l

@@ -2,8 +2,13 @@ from lasagne import layers, init
 from lasagne.nonlinearities import rectify, sigmoid, linear, tanh, LeakyRectify, elu
 import theano.tensor as T
 from layers import DenseCondConcat, ConvCondConcat
-from helpers import Deconv2DLayer, Deconv2DLayerScaler
 from lasagne.layers import batch_norm, Conv2DLayer
+
+
+
+from helpers import Deconv2DLayer, Deconv2DLayerScaler
+#Deconv2DLayer = Deconv2DLayerScaler
+
 
 import theano
 import numpy as np
@@ -345,7 +350,7 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
         )
         if do_batch_norm:
             Z = batch_norm(Z)
-    Z = Deconv2DLayer(
+    Z = Deconv2DLayerScaler(
         Z,
         num_filters=c,
         filter_size=(filter_size, filter_size),
