@@ -350,7 +350,7 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
         )
         if do_batch_norm:
             Z = batch_norm(Z)
-    Z = Deconv2DLayerScaler(
+    Z = Deconv2DLayer(
         Z,
         num_filters=c,
         filter_size=(filter_size, filter_size),
@@ -359,6 +359,7 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
         pad=(filter_size - 1) / 2,
         W=init.Normal(std=scale)  # 1 for gain
     )
+    print(Z.output_shape)
     out_gen = Z
     return x_in, z_in, out_gen, out_discr
 
@@ -366,7 +367,7 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
 def dcgan_small(z_dim=100, w=28, h=28, c=1):
     return dcgan(z_dim=100, w=w, h=h,
                  c=c,
-                 num_filters_g=128, num_filters_d=16,
+                 num_filters_g=128, num_filters_d=8,
                  start_w=4, start_h=4,
                  scale=0.01778279410038923,
                  filter_size=5, do_batch_norm=True)

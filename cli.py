@@ -221,10 +221,11 @@ def load_model(filename):
         data = dill.load(fd)
     builder = data['builder']
     builder_args = data['args']
-    gen, discr = builder(**builder_args)
+    res = builder(**builder_args)
+    gen, discr = res[len(res) - 2:]
     layers.set_all_param_values(gen, data['generator_weights'])
     layers.set_all_param_values(discr, data['discrimimator_weights'])
-    return gen, discr
+    return res
 
 
 @click.command()
