@@ -15,7 +15,8 @@ from tqdm import tqdm
 
 import pandas as pd
 
-@click.group()
+@
+click.group()
 def main():
     pass
 
@@ -37,6 +38,7 @@ def train(outdir='.', pattern='', model_name='dcgan',
           w=64, h=64, c=1, data_in_memory=True,
           dataset='mnist', **kw):
     import theano.tensor as T
+    from lasagne.regularization import l2, regularize_network_params
     from time import time
     from skimage.io import imsave
     from skimage.io import imread_collection
@@ -55,6 +57,7 @@ def train(outdir='.', pattern='', model_name='dcgan',
     rng = np.random.RandomState(1234)
     subset_ratio = kw.get('subset_ratio', 1)
     b1 = kw.get('b1', 0.5)
+    l2_coef = kw.get('l2_coef', 0)
 
     def resize_input(X, wh):
         w, h = wh
@@ -121,18 +124,18 @@ def train(outdir='.', pattern='', model_name='dcgan',
     g_cost_d = T.nnet.binary_crossentropy(p_gen, T.ones(p_gen.shape)).mean()
 
     d_cost = d_cost_real + d_cost_gen
+    d_cost_reg = l2_coef * regularize_network_params(out_discr, l2)
+
     g_cost = g_cost_d
+    g_cost_reg = l2_coef * regularize_network_params(out_gen, l2)
 
     cost = [g_cost, d_cost, g_cost_d, d_cost_real, d_cost_gen]
 
     discrim_params = layers.get_all_params(out_discr, trainable=True)
     gen_params = layers.get_all_params(out_gen, trainable=True)
 
-    d_updates = updates.adam(d_cost, discrim_params, learning_rate=lr, beta1=b1)
-    g_updates = updates.adam(g_cost, gen_params, learning_rate=lr, beta1=b1)
-
-    #d_updates = updates.rmsprop(d_cost, discrim_params, learning_rate=lr, rho=0.8)
-    #g_updates = updates.rmsprop(g_cost, gen_params, learning_rate=lr, rho=0.8)
+    d_updates = updates.adam(d_cost + d_cost_reg, discrim_params, learning_rate=lr, beta1=b1)
+    g_updates = updates.adam(g_cost + g_cost_reg, gen_params, learning_rate=lr, beta1=b1)
 
     all_updates = d_updates.copy()
     all_updates.update(g_updates)
