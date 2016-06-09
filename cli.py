@@ -15,8 +15,7 @@ from tqdm import tqdm
 
 import pandas as pd
 
-@
-click.group()
+@click.group()
 def main():
     pass
 
@@ -30,13 +29,14 @@ def main():
 @click.option('--c', default=3, help='1 if grayscale images otherwise 3', required=False)
 @click.option('--data_in_memory', default=True, help='', required=False)
 @click.option('--dataset', default='', help='only if pattern is not provided', required=False)
-def traincollection(outdir, pattern, model_name, w, h, c, data_in_memory, dataset, **kw):
-    train(outdir, pattern, model_name, w, h, c, data_in_memory, dataset, **kw)
+@click.option('--params', default='', help='only if pattern is not provided', required=False)
+def traincollection(outdir, pattern, model_name, w, h, c, data_in_memory, dataset, params, **kw):
+    train(outdir, pattern, model_name, w, h, c, data_in_memory, dataset, params, **kw)
 
 
 def train(outdir='.', pattern='', model_name='dcgan',
           w=64, h=64, c=1, data_in_memory=True,
-          dataset='mnist', **kw):
+          dataset='mnist', params='', **kw):
     import theano.tensor as T
     from lasagne.regularization import l2, regularize_network_params
     from time import time
@@ -44,13 +44,16 @@ def train(outdir='.', pattern='', model_name='dcgan',
     from skimage.io import imread_collection
     from skimage.transform import resize
     from data import load_data
+    import json
+    if params:
+        kw.update(json.loads(params))
     mkdir_path(outdir)
     w = int(w)
     h = int(h)
     c = int(c)
     # assume w and h are power of two
     lr_initial = kw.get('lr', 0.0002)
-    nb_epochs = kw.get('nb_epochs', 200)
+    nb_epochs = kw.get('nb_epochs', 2000)
     z_dim = kw.get('z_dim', 100)
     batch_size = kw.get('batch_size', 128)
     lr = theano.shared(floatX(np.array(lr_initial)))

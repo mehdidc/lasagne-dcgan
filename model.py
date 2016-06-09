@@ -3,17 +3,187 @@ from lasagne.nonlinearities import rectify, sigmoid, linear, tanh, LeakyRectify,
 import theano.tensor as T
 from layers import DenseCondConcat, ConvCondConcat
 from lasagne.layers import batch_norm, Conv2DLayer
-
-
-
 from helpers import Deconv2DLayer, Deconv2DLayerScaler
-#Deconv2DLayer = Deconv2DLayerScaler
 
 
 import theano
 import numpy as np
 
 leaky_rectify = LeakyRectify(0.2)
+
+
+def dcgan(z_dim=100, w=64, h=64, c=1,
+          num_filters_g=1024,  #start by this and divide by 2 after each layer (stop at num_filters_d)
+          num_filters_d=128,   #start  by this and double after each layer (stop at num_filters_g)
+          start_w=4, start_h=4, filter_size=5, do_batch_norm=True,
+          scale=0.02):
+
+    assert 2**int(np.log2(w)) == w
+    assert 2**int(np.log2(h)) == h
+
+    nb_layers = int(np.log2(w) - np.log2(start_w))
+    x_in = layers.InputLayer((None, c, w, h), name="input")
+    z_in = layers.InputLayer((None, z_dim), name="z")
+
+    nonlin_discr = leaky_rectify
+    nonlin_gen = rectify
+    # discrimimator
+    X = x_in
+    for i in range(nb_layers):
+        X = layers.Conv2DLayer(
+            X,
+            num_filters=num_filters_d,
+            filter_size=(filter_size, filter_size),
+            stride=2,
+            nonlinearity=nonlin_discr,
+            W=init.Normal(mean=0, std=scale)  # 1 for gain
+        )
+        if do_batch_norm and i > 0:
+            X = batch_norm(X)
+        num_filters_d *= 2
+    X = batch_norm(X)
+    X = layers.DenseLayer(
+        X,
+        1,
+        W=init.Normal(std=scale),
+        nonlinearity=sigmoid,
+    )
+    out_discr = X
+
+    # generator
+    Z = layers.DenseLayer(
+        z_in,
+        num_filters_g*start_w*start_h,
+        nonlinearity=nonlin_gen,
+        W=init.Normal(std=scale)
+    )
+    if do_batch_norm:
+        Z = batch_norm(Z)
+    Z = layers.ReshapeLayer(
+        Z,
+        ([0], num_filters_g, start_w, start_h)
+    )
+    for i in range(nb_layers - 1):
+        num_filters_g /= 2
+        Z = Deconv2DLayer(
+            Z,
+            num_filters=num_filters_g,
+            filter_size=(filter_size, filter_size),
+            stride=2,
+            nonlinearity=nonlin_gen,
+            pad=(filter_size - 1) / 2,
+            W=init.Normal(mean=0, std=scale)
+        )
+        if do_batch_norm:
+            Z = batch_norm(Z)
+    Z = Deconv2DLayer(
+        Z,
+        num_filters=c,
+        filter_size=(filter_size, filter_size),
+        stride=2,
+        nonlinearity=sigmoid,
+        pad=(filter_size - 1) / 2,
+        W=init.Normal(std=scale)  # 1 for gain
+    )
+    print(Z.output_shape)
+    out_gen = Z
+    return x_in, z_in, out_gen, out_discr
+
+
+def dcgan_small(z_dim=100, w=28, h=28, c=1):
+    return dcgan(z_dim=100, w=w, h=h,
+                 c=c,
+                 num_filters_g=128, num_filters_d=8,
+                 start_w=4, start_h=4,
+                 scale=0.01778279410038923,
+                 filter_size=5, do_batch_norm=True)
+
+
+def dcgan_standard(z_dim=100, w=64, h=64, c=3):
+    return dcgan(z_dim=z_dim, w=w, h=h, c=c,
+                 num_filters_g=1024, num_filters_d=128,
+                 start_w=4, start_h=4, filter_size=5,
+                 do_batch_norm=True)
+
+
+def dcgan_test(z_dim=100, w=64, h=64, c=1,
+          num_filters_g=1024,  #start by this and divide by 2 after each layer (stop at num_filters_d)
+          num_filters_d=128, # start  by this and double after each layer (stop at num_filters_g)
+          start_w=4, start_h=4, filter_size=5, do_batch_norm=True,
+          scale=0.02):
+
+    assert 2**int(np.log2(w)) == w
+    assert 2**int(np.log2(h)) == h
+
+    nb_layers = int(np.log2(w) - np.log2(start_w))
+    x_in = layers.InputLayer((None, c, w, h), name="input")
+    z_in = layers.InputLayer((None, z_dim), name="z")
+
+    nonlin_discr = leaky_rectify
+    nonlin_gen = rectify
+    # discrimimator
+    X = x_in
+    for i in range(nb_layers):
+        X = layers.Conv2DLayer(
+            X,
+            num_filters=num_filters_d,
+            filter_size=(filter_size, filter_size),
+            stride=2,
+            nonlinearity=nonlin_discr,
+            W=init.Normal(mean=0, std=scale)  # 1 for gain
+        )
+        if do_batch_norm and i > 0:
+            X = batch_norm(X)
+        num_filters_d *= 2
+    X = batch_norm(X)
+    X = layers.DenseLayer(
+        X,
+        1,
+        W=init.Normal(std=scale),
+        nonlinearity=sigmoid,
+    )
+    out_discr = X
+
+    # generator
+    Z = layers.DenseLayer(
+        z_in,
+        num_filters_g*start_w*start_h,
+        nonlinearity=nonlin_gen,
+        W=init.Normal(std=scale)
+    )
+    if do_batch_norm:
+        Z = batch_norm(Z)
+    Z = layers.ReshapeLayer(
+        Z,
+        ([0], num_filters_g, start_w, start_h)
+    )
+    for i in range(nb_layers - 1):
+        num_filters_g /= 2
+        Z = Deconv2DLayer(
+            Z,
+            num_filters=num_filters_g,
+            filter_size=(filter_size, filter_size),
+            stride=2,
+            nonlinearity=nonlin_gen,
+            pad=(filter_size - 1) / 2,
+            W=init.Normal(mean=0, std=scale)
+        )
+        if do_batch_norm:
+            Z = batch_norm(Z)
+    Z = Deconv2DLayerScaler(
+        Z,
+        num_filters=c,
+        filter_size=(filter_size, filter_size),
+        stride=2,
+        nonlinearity=sigmoid,
+        pad=(filter_size - 1) / 2,
+        W=init.Normal(std=scale)  # 1 for gain
+    )
+    print(Z.output_shape)
+    out_gen = Z
+    return x_in, z_in, out_gen, out_discr
+
+# some examples for clarity purpose
 
 
 def cond_dcgan_28x28(z_dim=100, w=28, h=28, c=1, nb_outputs=10):
@@ -279,184 +449,6 @@ def dcgan_64x64(z_dim=100, w=64, h=64, c=1):
         stride=2,
         nonlinearity=tanh
     )
-    out_gen = Z
-    return x_in, z_in, out_gen, out_discr
-
-
-def dcgan(z_dim=100, w=64, h=64, c=1,
-          num_filters_g=1024,  #start by this and divide by 2 after each layer (stop at num_filters_d)
-          num_filters_d=128, # start  by this and double after each layer (stop at num_filters_g)
-          start_w=4, start_h=4, filter_size=5, do_batch_norm=True,
-          scale=0.02):
-
-    assert 2**int(np.log2(w)) == w
-    assert 2**int(np.log2(h)) == h
-
-    nb_layers = int(np.log2(w) - np.log2(start_w))
-    x_in = layers.InputLayer((None, c, w, h), name="input")
-    z_in = layers.InputLayer((None, z_dim), name="z")
-
-    nonlin_discr = leaky_rectify
-    nonlin_gen = rectify
-    # discrimimator
-    X = x_in
-    for i in range(nb_layers):
-        X = layers.Conv2DLayer(
-            X,
-            num_filters=num_filters_d,
-            filter_size=(filter_size, filter_size),
-            stride=2,
-            nonlinearity=nonlin_discr,
-            W=init.Normal(mean=0, std=scale)  # 1 for gain
-            #W=init.Orthogonal(gain='relu'),
-        )
-        if do_batch_norm and i > 0:
-            X = batch_norm(X)
-        num_filters_d *= 2
-    X = batch_norm(X)
-    X = layers.DenseLayer(
-        X,
-        1,
-        W=init.Normal(std=scale),
-        nonlinearity=sigmoid,
-        #W=init.Orthogonal(),
-    )
-    out_discr = X
-
-    # generator
-    Z = layers.DenseLayer(
-        z_in,
-        num_filters_g*start_w*start_h,
-        nonlinearity=nonlin_gen,
-        W=init.Normal(std=scale)
-        #W=init.Orthogonal(gain='relu'),
-    )
-    if do_batch_norm:
-        Z = batch_norm(Z)
-    Z = layers.ReshapeLayer(
-        Z,
-        ([0], num_filters_g, start_w, start_h)
-    )
-    for i in range(nb_layers - 1):
-        num_filters_g /= 2
-        Z = Deconv2DLayer(
-            Z,
-            num_filters=num_filters_g,
-            filter_size=(filter_size, filter_size),
-            stride=2,
-            nonlinearity=nonlin_gen,
-            pad=(filter_size - 1) / 2,
-            W=init.Normal(mean=0, std=scale)  #1 for gain
-        )
-        if do_batch_norm:
-            Z = batch_norm(Z)
-    Z = Deconv2DLayer(
-        Z,
-        num_filters=c,
-        filter_size=(filter_size, filter_size),
-        stride=2,
-        nonlinearity=sigmoid,
-        pad=(filter_size - 1) / 2,
-        W=init.Normal(std=scale)  # 1 for gain
-    )
-    print(Z.output_shape)
-    out_gen = Z
-    return x_in, z_in, out_gen, out_discr
-
-
-def dcgan_small(z_dim=100, w=28, h=28, c=1):
-    return dcgan(z_dim=100, w=w, h=h,
-                 c=c,
-                 num_filters_g=128, num_filters_d=8,
-                 start_w=4, start_h=4,
-                 scale=0.01778279410038923,
-                 filter_size=5, do_batch_norm=True)
-
-
-def dcgan_standard(z_dim=100, w=64, h=64, c=3):
-    return dcgan(z_dim=z_dim, w=w, h=h, c=c,
-                 num_filters_g=1024, num_filters_d=128,
-                 start_w=4, start_h=4, filter_size=5,
-                 do_batch_norm=True)
-
-
-def dcgan_test(z_dim=100, w=64, h=64, c=1,
-          num_filters_g=1024,  #start by this and divide by 2 after each layer (stop at num_filters_d)
-          num_filters_d=128, # start  by this and double after each layer (stop at num_filters_g)
-          start_w=4, start_h=4, filter_size=5, do_batch_norm=True,
-          scale=0.02):
-
-    assert 2**int(np.log2(w)) == w
-    assert 2**int(np.log2(h)) == h
-
-    nb_layers = int(np.log2(w) - np.log2(start_w))
-    x_in = layers.InputLayer((None, c, w, h), name="input")
-    z_in = layers.InputLayer((None, z_dim), name="z")
-
-    nonlin_discr = leaky_rectify
-    nonlin_gen = rectify
-    # discrimimator
-    X = x_in
-    for i in range(nb_layers):
-        X = layers.Conv2DLayer(
-            X,
-            num_filters=num_filters_d,
-            filter_size=(filter_size, filter_size),
-            stride=2,
-            nonlinearity=nonlin_discr,
-            W=init.Normal(mean=0, std=scale)  # 1 for gain
-            #W=init.Orthogonal(gain='relu'),
-        )
-        if do_batch_norm and i > 0:
-            X = batch_norm(X)
-        num_filters_d *= 2
-    X = batch_norm(X)
-    X = layers.DenseLayer(
-        X,
-        1,
-        W=init.Normal(std=scale),
-        nonlinearity=sigmoid,
-        #W=init.Orthogonal(),
-    )
-    out_discr = X
-
-    # generator
-    Z = layers.DenseLayer(
-        z_in,
-        num_filters_g*start_w*start_h,
-        nonlinearity=nonlin_gen,
-        W=init.Normal(std=scale)
-        #W=init.Orthogonal(gain='relu'),
-    )
-    if do_batch_norm:
-        Z = batch_norm(Z)
-    Z = layers.ReshapeLayer(
-        Z,
-        ([0], num_filters_g, start_w, start_h)
-    )
-    for i in range(nb_layers - 1):
-        num_filters_g /= 2
-        Z = Deconv2DLayer(
-            Z,
-            num_filters=num_filters_g,
-            filter_size=(filter_size, filter_size),
-            stride=2,
-            nonlinearity=nonlin_gen,
-            pad=(filter_size - 1) / 2,
-            W=init.Normal(mean=0, std=scale)  #1 for gain
-        )
-        if do_batch_norm:
-            Z = batch_norm(Z)
-    Z = Deconv2DLayerScaler(
-        Z,
-        num_filters=c,
-        filter_size=(filter_size, filter_size),
-        stride=2,
-        nonlinearity=sigmoid,
-        pad=(filter_size - 1) / 2,
-        W=init.Normal(std=scale)  # 1 for gain
-    )
-    print(Z.output_shape)
     out_gen = Z
     return x_in, z_in, out_gen, out_discr
 

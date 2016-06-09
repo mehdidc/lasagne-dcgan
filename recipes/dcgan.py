@@ -178,19 +178,15 @@ def load_dataset():
     X_test = X_test.reshape((X_test.shape[0], 1, 28, 28))
     y_test = load_mnist_labels('t10k-labels-idx1-ubyte.gz')
 
-    # We reserve the last 10000 training examples for validation.
-    X_train, X_val = X_train[:-10000], X_train[-10000:]
-    y_train, y_val = y_train[:-10000], y_train[-10000:]
-
     # We just return all the arrays in order, as expected in main().
     # (It doesn't matter how we do this as long as we can read them again.)
 
-    return X_train, y_train, X_val, y_val, X_test, y_test
+    return X_train, y_train, X_test, y_test
 
 
 def main(out_folder='out/'):
     lr_initial = 0.0002
-    nb_epochs = 100
+    nb_epochs = 1000
     z_dim = 100
     batch_size = 128
     nb_outputs = 10
@@ -200,7 +196,7 @@ def main(out_folder='out/'):
     lr = theano.shared(floatX(np.array(lr_initial)))
 
     # load data
-    X_train, y_train, X_valid, y_valid, X_test, y_test = load_dataset()
+    X_train, y_train, X_test, y_test = load_dataset()
     # save a sample of real data in a file
     mkdir_path(out_folder)
     xdisp = X_train[0:400]
