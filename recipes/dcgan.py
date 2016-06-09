@@ -290,7 +290,6 @@ def main(out_folder='out/'):
                 nb_d_updates += 1
                 update_generator = True
             n_updates += 1
-        print(nb_g_updates, nb_d_updates)
         stats = OrderedDict()
         stats['epoch'] = epoch
         stats['g_loss'] = total_g_loss / nb_g_updates

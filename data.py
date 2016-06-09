@@ -3,6 +3,7 @@ from collections import namedtuple
 
 Dataset = namedtuple('Dataset', ('X', 'y'))
 
+
 def load_data(name, **kw):
     from lasagnekit.datasets.mnist import MNIST
     from lasagnekit.datasets.fonts import Fonts
@@ -33,7 +34,8 @@ def load_data(name, **kw):
         DATA_PATH = os.getenv('DATA_PATH')
         filename = os.path.join(DATA_PATH, 'fonts_big', 'fonts.hdf5')
         hf = h5py.File(filename)
-        X = HdfLambda(hf['trn/bitmap'], lambda x: x.transpose((0, 2, 3, 1)))
+        X = HdfLambda(hf['trn/bitmap'],
+                      lambda x: 255 - x.transpose((0, 2, 3, 1)))
         y = hf['trn/tagcode']
         data = Dataset(X=X, y=y)
     if name == 'fonts_big':
