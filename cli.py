@@ -102,7 +102,12 @@ def train(outdir='.', pattern='', model_name='dcgan',
     if data_in_memory is True:
         if X.shape[1:3] != (w, h):
             X = rescale_input(X)
-        img = dispims(X[0:100], border=1)
+        if X.shape[3] not in (1, 3):
+            xdisp = X[:, :, :, 0:1]
+        else:
+            xdisp = X
+        xdis = xdisp[0:100]
+        img = dispims(xdisp[0:100], border=1)
         filename = os.path.join(outdir, 'real_data.png')
         imsave(filename, img)
 
@@ -187,6 +192,9 @@ def train(outdir='.', pattern='', model_name='dcgan',
             sample_Z = floatX(rng.uniform(-1., 1., size=(nb_samples, z_dim)))
             sample_X = gen(sample_Z)
             sample_X = deprocess_input(sample_X)
+            if sample_X.shape[3] not in (1, 3):
+                channel = rng.randint(0, sample_X.shape[3])
+                sample_X = sample_X[:, :, :, channel:channel+1]
             img = dispims(sample_X, border=1)
             filename = os.path.join(outdir, 'samples{:05d}.png'.format(epoch))
             imsave(filename, img)

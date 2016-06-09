@@ -27,20 +27,49 @@ def load_data(name, **kw):
         data.load()
         data.X = data.X.reshape((data.X.shape[0], 64, 64, 3))
         data.X = data.X.transpose((0, 3, 1, 2))
+    if name == 'chinese':
+        import os
+        import h5py
+        DATA_PATH = os.getenv('DATA_PATH')
+        filename = os.path.join(DATA_PATH, 'fonts_big', 'fonts.hdf5')
+        hf = h5py.File(filename)
+        X = HdfLambda(hf['trn/bitmap'], lambda x: x.transpose((0, 2, 3, 1)))
+        y = hf['trn/tagcode']
+        data = Dataset(X=X, y=y)
     if name == 'fonts_big':
         import h5py
-        from lasagnekit.datasets.manual import Manual
-        from lasagnekit.datasets.subsampled import SubSampled
-        from lasagnekit.datasets.rescaled import Rescaled
-        from lasagnekit.datasets.transformed import Transformed
         import os
         DATA_PATH = os.getenv('DATA_PATH')
         filename = os.path.join(DATA_PATH, 'fonts_big', 'fonts.hdf5')
         hf = h5py.File(filename)
         X = hf['fonts']
-        X = HdfIterator(X, preprocess=lambda x:x[:, :, :, np.newaxis])
+        X = HdfIterator(X, preprocess=lambda x: x[:, :, :, np.newaxis])
         data = Dataset(X=X, y=np.array([]))
+    if name == 'fonts_big_multichannel':
+        import h5py
+        import os
+        DATA_PATH = os.getenv('DATA_PATH')
+        filename = os.path.join(DATA_PATH, 'fonts_big', 'fonts.hdf5')
+        hf = h5py.File(filename)
+        X = hf['fonts']
+        X = HdfLambda(X, lambda x: x.transpose((0, 2, 3, 1)))
+        data = Dataset(X=X, y=np.array([]))
+
     return split_data(data, **kw)
+
+
+class HdfLambda(object):
+
+    def __init__(self, X, fn=lambda x:x):
+        self.X = X
+        self.fn = fn
+        self.shape = X.shape
+
+    def __getitem__(self, key):
+        x = self.X[key]
+        x = self.fn(x)
+        return x
+
 
 class HdfIterator(object):
 
