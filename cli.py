@@ -96,15 +96,15 @@ def train(outdir='.', pattern='', model_name='dcgan',
         X = imread_collection(pattern)
     else:
         assert dataset != ''
-        data_train, data_valid = load_data(dataset, training_subset=subset_ratio)
+        data_train, data_valid = load_data(dataset, training_subset=subset_ratio, valid_ratio=0, shuffle=kw.get('shuffle', True))
         X = data_train.X
 
     if data_in_memory is True:
-        X = rescale_input(X)
+        if X.shape[1:3] != (w, h):
+            X = rescale_input(X)
         img = dispims(X[0:100], border=1)
         filename = os.path.join(outdir, 'real_data.png')
         imsave(filename, img)
-        X = preprocess_input(X)
 
     # compile net
     X_real = T.tensor4()
@@ -161,10 +161,10 @@ def train(outdir='.', pattern='', model_name='dcgan',
         nb_g_updates = 0
         nb_d_updates = 0
         t = time()
-        for train_X in tqdm(iterate_minibatches(X, targets=None, batchsize=batch_size, shuffle=True)):
+        for train_X in tqdm(iterate_minibatches(X, targets=None, batchsize=batch_size)):
             if data_in_memory == False:
                 train_X = rescale_input(train_X)
-                train_X = preprocess_input(train_X)
+            train_X = preprocess_input(train_X)
             train_Z = floatX(rng.uniform(-1., 1., size=(len(train_X), z_dim)))
             if n_updates % 2 == 0:
                 total_d_loss += train_d(train_X, train_Z)[1]
