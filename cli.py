@@ -61,6 +61,8 @@ def train(outdir='.', pattern='', model_name='dcgan',
     subset_ratio = kw.get('subset_ratio', 1)
     b1 = kw.get('b1', 0.5)
     l2_coef = kw.get('l2_coef', 0)
+    epoch_start_decay = kw.get('epoch_start_decay', None)
+    lr_decay = kw.get('lr_decay', 0.97)
 
     def resize_input(X, wh):
         w, h = wh
@@ -100,7 +102,7 @@ def train(outdir='.', pattern='', model_name='dcgan',
         X = data_train.X
 
     if data_in_memory is True:
-        if X.shape[1:3] != (w, h):
+        if X[0].shape[0:2] != (w, h):
             X = rescale_input(X)
         if X.shape[3] not in (1, 3):
             xdisp = X[:, :, :, 0:1]
@@ -215,8 +217,8 @@ def train(outdir='.', pattern='', model_name='dcgan',
         a = [s['g_loss'] for s in history]
         b = [s['d_loss'] for s in history]
         pd.DataFrame({'g_loss': a, 'd_loss': b}).to_csv("{}/stats.csv".format(outdir))
-        #if epoch > 12:
-        #   lr.set_value(floatX(np.array(lr.get_value() * 0.95)))
+        if epoch_start_decay is not None and epoch >= epoch_start_decay:
+           lr.set_value(floatX(np.array(lr.get_value() * lr_decay)))
     save_model(builder, builder_args, out_gen, out_discr, model_filename)
     return history
 
