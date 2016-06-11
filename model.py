@@ -112,7 +112,12 @@ def dcgan_a(z_dim=100, w=64, h=64, c=3):
                  scale=0.01778279410038923,
                  do_batch_norm=True)
 
-
+def dcgan_b(z_dim=100, w=64, h=64, c=3):
+    return dcgan(z_dim=z_dim, w=w, h=h, c=c,
+                 num_filters_g=1024, num_filters_d=64,
+                 start_w=4, start_h=4, filter_size=5,
+                 scale=0.01778279410038923,
+                 do_batch_norm=True)
 
 def dcgan_test(z_dim=100, w=64, h=64, c=1,
           num_filters_g=1024,  #start by this and divide by 2 after each layer (stop at num_filters_d)
