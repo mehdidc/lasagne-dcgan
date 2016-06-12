@@ -1,5 +1,6 @@
 import numpy as np
 from collections import namedtuple
+from helpers import floatX
 
 Dataset = namedtuple('Dataset', ('X', 'y'))
 
@@ -35,7 +36,7 @@ def load_data(name, **kw):
         filename = os.path.join(DATA_PATH, 'chinese', 'data.hdf5')
         hf = h5py.File(filename)
         X = HdfLambda(hf['tst/bitmap'],
-                      lambda x: 255 - x.transpose((0, 2, 3, 1)))
+                      lambda x: floatX(255. - x.transpose((0, 2, 3, 1))))
         y = hf['tst/tagcode']
         data = Dataset(X=X, y=y)
     if name == 'fonts_big':
