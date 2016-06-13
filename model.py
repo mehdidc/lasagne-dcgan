@@ -114,7 +114,7 @@ def dcgan_a(z_dim=100, w=64, h=64, c=3):
 
 def dcgan_b(z_dim=100, w=64, h=64, c=3):
     return dcgan(z_dim=z_dim, w=w, h=h, c=c,
-                 num_filters_g=1024, num_filters_d=64,
+                 num_filters_g=1024, num_filters_d=32,
                  start_w=4, start_h=4, filter_size=5,
                  scale=0.01778279410038923,
                  do_batch_norm=True)
