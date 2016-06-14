@@ -28,8 +28,7 @@ def load_data(name, **kw):
     if name == 'insects':
         data = Insects()
         data.load()
-        data.X = data.X.reshape((data.X.shape[0], 64, 64, 3))
-        data.X = data.X.transpose((0, 3, 1, 2))
+        data.X = data.X.reshape((data.X.shape[0], 3, 64, 64))
     if name == 'chinese':
         import os
         import h5py
