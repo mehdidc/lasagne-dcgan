@@ -82,6 +82,7 @@ def train(outdir='.', pattern='', model_name='dcgan',
         return x
 
     def rescale_input(X):
+        # assumes X has shape (B, w, h, c) and returns (B, ww, hh, c)
         X_rescaled = np.empty((len(X), w, h, c))
         for i in range(len(X)):
             Xi = np.array(X[i])
@@ -100,7 +101,8 @@ def train(outdir='.', pattern='', model_name='dcgan',
             X = X.reshape((X.shape[0], 1, X.shape[1], X.shape[2]))
             return X
         else:
-            X = X.transpose((0, 3, 1, 2))
+            if X.shape[3] == 3:
+                X = X.transpose((0, 3, 1, 2))
             return X
 
     def deprocess_input(X):

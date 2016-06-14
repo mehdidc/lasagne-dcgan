@@ -15,20 +15,20 @@ def load_data(name, **kw):
     if name == 'mnist':
         data = MNIST()
         data.load()
-        data.X = data.X.reshape((data.X.shape[0], 1, 28, 28))
+        data.X = data.X.reshape((data.X.shape[0], 28, 28, 1))
     if name == 'fonts':
         data = Fonts(labels_kind='letters')
         data.load()
-        data.X = data.X.reshape((data.X.shape[0], 1, 64, 64))
+        data.X = data.X.reshape((data.X.shape[0], 64, 64, 1))
     if name == 'fonts_28x28':
         data = Fonts(labels_kind='letters')
         data = Rescaled(data, (28, 28))
         data.load()
-        data.X = data.X.reshape((data.X.shape[0], 1, 28, 28))
+        data.X = data.X.reshape((data.X.shape[0], 28, 28, 1))
     if name == 'insects':
         data = Insects()
         data.load()
-        data.X = data.X.reshape((data.X.shape[0], 3, 64, 64))
+        data.X = data.X.reshape((data.X.shape[0], 64, 64, 3))
     if name == 'chinese':
         import os
         import h5py
@@ -36,7 +36,7 @@ def load_data(name, **kw):
         filename = os.path.join(DATA_PATH, 'chinese', 'data.hdf5')
         hf = h5py.File(filename)
         X = HdfLambda(hf['tst/bitmap'],
-                      lambda x: floatX(255. - x.transpose((0, 2, 3, 1))))
+                      lambda x: floatX(255. - x))
         y = hf['tst/tagcode']
         data = Dataset(X=X, y=y)
     if name == 'fonts_big':
