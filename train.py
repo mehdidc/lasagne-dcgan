@@ -61,7 +61,8 @@ def train(outdir='.', pattern='', model_name='dcgan',
     apply_crop = kw.get('apply_crop', False)
     crop_h = kw.get('crop_h', None)
     crop_w = kw.get('crop_w', None)
-
+    seed = kw.get('seed', None)
+    np.random.seed(seed)
     def resize_input(X, wh):
         w, h = wh
         if apply_crop:
@@ -101,8 +102,7 @@ def train(outdir='.', pattern='', model_name='dcgan',
             X = X.reshape((X.shape[0], 1, X.shape[1], X.shape[2]))
             return X
         else:
-            if X.shape[3] == 3:
-                X = X.transpose((0, 3, 1, 2))
+            X = X.transpose((0, 3, 1, 2))
             return X
 
     def deprocess_input(X):

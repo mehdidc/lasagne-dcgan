@@ -150,6 +150,42 @@ def hyperjob(run, where):
         )
         return list(jobs)
 
+    def js6():
+        jobs = (
+            dict(
+                seed=42,
+                lr=lr,
+                b1=b1,
+                epoch_start_decay=epoch_start_decay,
+                lr_decay=lr_decay,
+                l2_coef=l2_coef,
+                nb_epochs=200,
+                model=dict(scale=scale,
+                           num_filters_g=num_filters_g,
+                           num_filters_d=num_filters_d,
+                           start_w=4,
+                           start_h=4,
+                           filter_size=5,
+                           do_batch_norm=True),
+                subset_ratio=subset_ratio,
+                dataset='fonts',
+                w=64,
+                h=64,
+                c=1,
+                model_name='dcgan')
+            for scale in (0.01778279410038923,)
+            for num_filters_g in [1024]
+            for num_filters_d in [128]
+            for lr in (0.0002, 0.001, 0.00001, 0.00005)
+            for b1 in (0.5,)
+            for epoch_start_decay in (100,)
+            for lr_decay in (1, 0.97, 0.99, 0.9)
+            for l2_coef in (0, 1e-7, 1e-5, 1e-3)
+            for subset_ratio in (1,)
+        )
+        return list(jobs)
+
+
     def insert_jobs():
         nb = 0
         jobs = list(js1())
@@ -158,6 +194,7 @@ def hyperjob(run, where):
         nb += insert(js3(), 'js3')
         nb += insert(js4(), 'js4')
         nb += insert(js5(), 'js5')
+        nb += insert(js6(), 'js6')
         return nb
 
     def insert(jobs, where=''):
