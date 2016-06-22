@@ -5,7 +5,8 @@ import numpy as np
 @click.command()
 @click.option('--run', default=0, help='nb jobs to run', required=False)
 @click.option('--where', default=None, help='where to run', required=False)
-def hyperjob(run, where):
+@click.option('--job_id', default=None, help='list of ids separated by ,', required=False)
+def hyperjob(run, where, job_id):
     from lightjob.cli import load_db
     from lightjob.db import SUCCESS, RUNNING, AVAILABLE, PENDING
     from lightjob.utils import summarize
@@ -185,7 +186,6 @@ def hyperjob(run, where):
         )
         return list(jobs)
 
-
     def insert_jobs():
         nb = 0
         jobs = list(js1())
@@ -205,12 +205,15 @@ def hyperjob(run, where):
             nb += db.safe_add_job(content, outdir=outdir, where=where)
         return nb
 
-    def run_jobs(nb=None, where=None):
+    def run_jobs(nb=None, where=None, job_id=None):
         kw = {}
         if where is not None:
             kw['where'] = where
         jobs = db.jobs_with(state=AVAILABLE, **kw)
         jobs = list(jobs)
+        if job_id is not None:
+            job_id = set(job_id.split(','))
+            jobs = [j for j in jobs if j['summary'] in job_id]
         if nb is not None:
             jobs = jobs[0:nb]
         for j in jobs:
@@ -227,5 +230,4 @@ def hyperjob(run, where):
     db = load_db()
     nb = insert_jobs()
     print('nb jobs inserted : {}'.format(nb))
-    run_jobs(nb=run, where=where)
-
+    run_jobs(nb=run, where=where, job_id=job_id)
