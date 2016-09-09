@@ -1,7 +1,7 @@
 from lasagne import layers, init
 from lasagne.nonlinearities import rectify, sigmoid, linear, tanh, LeakyRectify, elu
 import theano.tensor as T
-from layers import DenseCondConcat, ConvCondConcat
+from layers import DenseCondConcat, ConvCondConcat, GenericBrushLayer, Repeat, TensorDenseLayer
 from lasagne.layers import batch_norm, Conv2DLayer
 from helpers import Deconv2DLayer, Deconv2DLayerScaler
 
@@ -10,6 +10,111 @@ import theano
 import numpy as np
 
 leaky_rectify = LeakyRectify(0.2)
+
+
+def brush(z_dim=100, w=64, h=64, c=1,
+          num_filters_d=8,
+          start_w=4, start_h=4,
+          filter_size=5,
+          do_batch_norm=True,
+          scale=0.02,
+          nb_recurrent_layers=1,
+          nb_recurrent_units=100,
+          nb_fc_layers=1,
+          n_steps=20,
+          patch_size=5,
+          nb_fc_units=[1000]):
+
+    nb_layers = int(np.log2(w) - np.log2(start_w))
+    x_in = layers.InputLayer((None, c, w, h), name="input")
+    z_in = layers.InputLayer((None, z_dim), name="z")
+
+    nonlin_discr = leaky_rectify
+    nonlin_gen = rectify
+    # discrimimator (same than dcgan)
+    X = x_in
+    for i in range(nb_layers):
+        X = layers.Conv2DLayer(
+            X,
+            num_filters=num_filters_d,
+            filter_size=(filter_size, filter_size),
+            stride=2,
+            nonlinearity=nonlin_discr,
+            W=init.Normal(mean=0, std=scale)  # 1 for gain
+        )
+        if do_batch_norm and i > 0:
+            X = batch_norm(X)
+        #num_filters_d *= 2
+    X = batch_norm(X)
+    X = layers.DenseLayer(
+        X,
+        1,
+        W=init.Normal(std=scale),
+        nonlinearity=sigmoid,
+    )
+    out_discr = X
+    # generator (brush)
+    if type(nb_fc_units) != list:
+        nb_fc_units = [nb_fc_units] * nb_fc_layers
+    if type(nb_recurrent_units) != list:
+        nb_recurrent_units = [nb_recurrent_units] * nb_recurrent_layers
+
+    Z = z_in
+    for i in range(nb_fc_layers):
+        Z = layers.DenseLayer(
+            Z, nb_fc_units[i],
+            W=init.GlorotUniform(gain='relu'),
+            nonlinearity=nonlin_gen)
+        if do_batch_norm:
+            Z = batch_norm(Z)
+
+    Z = Repeat(Z, n_steps)
+
+    recurrent_model = layers.RecurrentLayer
+    for i in range(nb_recurrent_layers):
+        Z = recurrent_model(Z, nb_recurrent_units[i])
+
+    l_coord = TensorDenseLayer(Z, 5, nonlinearity=linear, name="coord")
+    l_coord = batch_norm(l_coord)
+
+    # DECODING PART
+    patches = np.ones((1, c, patch_size, patch_size))
+    patches = patches.astype(np.float32)
+
+    l_brush = GenericBrushLayer(
+        l_coord,
+        w, h,
+        n_steps=n_steps,
+        patches=patches,
+        col='rgb' if c == 3 else 'grayscale',
+        return_seq=False,
+        reduce_func=lambda x, y: x+y,
+        to_proba_func=T.nnet.softmax,
+        normalize_func=T.nnet.sigmoid,
+        x_sigma=0.5,
+        y_sigma=0.5,
+        x_stride=1,
+        y_stride=1,
+        patch_index=0,
+        color=[1],
+        x_min=0,
+        x_max='width',
+        y_min=0,
+        y_max='height',
+        eps=0,
+    )
+    l_raw_out = l_brush
+    l_scaled_out = layers.ScaleLayer(
+        l_raw_out, scales=init.Constant(2.), name="scaled_output")
+    l_biased_out = layers.BiasLayer(
+        l_scaled_out, b=init.Constant(-1), name="biased_output")
+
+    l_out = layers.NonlinearityLayer(
+        l_biased_out,
+        nonlinearity=sigmoid,
+        name="output")
+    out_gen = l_out
+    return x_in, z_in, out_gen, out_discr
 
 
 def dcgan(z_dim=100, w=64, h=64, c=1,
@@ -467,6 +572,21 @@ def dcgan_64x64(z_dim=100, w=64, h=64, c=1):
 
 
 if __name__ == '__main__':
+
+    # brush
+
+    x_in, z_in, out_gen, out_discr = brush(z_dim=100, c=3, w=128, h=128, start_w=4, start_h=4)
+
+    X = T.tensor4()
+    Z = T.matrix()
+
+    gen = theano.function([Z], layers.get_output(out_gen, {z_in: Z}))
+    discr = theano.function([X], layers.get_output(out_discr, {x_in: X}))
+
+    z_ex = np.random.uniform(size=(20, 100)).astype(np.float32)
+    x_ex = np.random.uniform(size=(20, 3, 128, 128)).astype(np.float32)
+    print(gen(z_ex).shape)
+    print(discr(x_ex).shape)
 
     # cond dcgan 28x28 (mnist)
     x_in, y_in, z_in, out_gen, out_discr = cond_dcgan_28x28(z_dim=100, c=1, nb_outputs=10)
