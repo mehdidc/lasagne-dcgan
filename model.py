@@ -12,40 +12,35 @@ import numpy as np
 leaky_rectify = LeakyRectify(0.2)
 
 
-def brush(z_dim=100, w=64, h=64, c=1,
-          num_filters_d=8,
-          start_w=4, start_h=4,
-          filter_size=5,
-          do_batch_norm=True,
-          scale=0.02,
-          nb_recurrent_layers=1,
-          nb_recurrent_units=100,
-          nb_fc_layers=1,
-          n_steps=20,
-          patch_size=5,
-          nb_fc_units=[1000]):
+def brush(z_dim=100, w=64, h=64, c=1):
 
-    nb_layers = int(np.log2(w) - np.log2(start_w))
     x_in = layers.InputLayer((None, c, w, h), name="input")
     z_in = layers.InputLayer((None, z_dim), name="z")
 
-    nonlin_discr = leaky_rectify
-    nonlin_gen = rectify
-    # discrimimator (same than dcgan)
+    scale = 0.02
+    patch_size = 5
+    n_steps = 30
+
+    # discrimimator
     X = x_in
-    for i in range(nb_layers):
-        X = layers.Conv2DLayer(
-            X,
-            num_filters=num_filters_d,
-            filter_size=(filter_size, filter_size),
-            stride=2,
-            nonlinearity=nonlin_discr,
-            W=init.Normal(mean=0, std=scale)  # 1 for gain
-        )
-        if do_batch_norm and i > 0:
-            X = batch_norm(X)
-        #num_filters_d *= 2
-    X = batch_norm(X)
+    X = layers.Conv2DLayer(
+        X,
+        num_filters=32,
+        filter_size=(5, 5),
+        stride=2,
+        nonlinearity=leaky_rectify,
+        W=init.Normal(mean=0, std=scale)
+    )
+
+    X = layers.Conv2DLayer(
+        X,
+        num_filters=32,
+        filter_size=(5, 5),
+        stride=2,
+        nonlinearity=leaky_rectify,
+        W=init.Normal(mean=0, std=scale)
+    )
+
     X = layers.DenseLayer(
         X,
         1,
@@ -53,31 +48,25 @@ def brush(z_dim=100, w=64, h=64, c=1,
         nonlinearity=sigmoid,
     )
     out_discr = X
-    # generator (brush)
-    if type(nb_fc_units) != list:
-        nb_fc_units = [nb_fc_units] * nb_fc_layers
-    if type(nb_recurrent_units) != list:
-        nb_recurrent_units = [nb_recurrent_units] * nb_recurrent_layers
 
+    # generator (brush)
     Z = z_in
-    for i in range(nb_fc_layers):
-        Z = layers.DenseLayer(
-            Z, nb_fc_units[i],
-            W=init.GlorotUniform(gain='relu'),
-            nonlinearity=nonlin_gen)
-        if do_batch_norm:
-            Z = batch_norm(Z)
+    Z = layers.DenseLayer(
+        Z, 128,
+        W=init.Normal(mean=0, std=scale),
+        nonlinearity=leaky_rectify
+    )
+    Z = batch_norm(Z)
+    Z = layers.DenseLayer(
+        Z, 256,
+        W=init.Normal(mean=0, std=scale),
+        nonlinearity=leaky_rectify)
+    Z = batch_norm(Z)
 
     Z = Repeat(Z, n_steps)
-
-    recurrent_model = layers.RecurrentLayer
-    for i in range(nb_recurrent_layers):
-        Z = recurrent_model(Z, nb_recurrent_units[i])
-
+    Z = layers.LSTMLayer(Z, 500)
     l_coord = TensorDenseLayer(Z, 5, nonlinearity=linear, name="coord")
-    l_coord = batch_norm(l_coord)
 
-    # DECODING PART
     patches = np.ones((1, c, patch_size, patch_size))
     patches = patches.astype(np.float32)
 

@@ -158,8 +158,6 @@ def axis_softmax(x, axis=1):
     return out
 
 
-
-
 class GenericBrushLayer(layers.Layer):
 
     def __init__(self, incoming, w, h,
@@ -378,7 +376,7 @@ class GenericBrushLayer(layers.Layer):
         elif self.color == 'patches':
             pass
         else:
-            colors_ = theano.shared(np.array(colors))
+            colors_ = theano.shared(np.array(colors).astype(theano.config.floatX))
             colors_ = colors_.dimshuffle('x', 0, 'x', 'x')
             o = o * colors_
         return o
@@ -392,6 +390,12 @@ class GenericBrushLayer(layers.Layer):
             (self.nb_col_channels, self.h, self.w))
         init_val = T.zeros(output_shape)
         init_val = T.unbroadcast(init_val, 0, 1, 2, 3)
+        # the above is to avoid this error:
+        # "an input and an output are associated with the same recurrent state
+        # and should have the same type but have type 'CudaNdarrayType(float32,
+        # (False, True, False, False))' and 'CudaNdarrayType(float32, 4D)'
+        # respectively.'))"
+
         output, _ = recurrent_accumulation(
             # 'time' should be the first dimension
             input.dimshuffle(1, 0, 2),
