@@ -40,7 +40,9 @@ def train(outdir='.', pattern='', model_name='dcgan',
     from skimage.transform import resize
     from data import load_data
     import json
-    if params:
+    if params.endswith('.json'):
+        kw.update(json.load(open(params)))
+    elif params:
         kw.update(json.loads(params))
     mkdir_path(outdir)
     w = int(w)
@@ -62,7 +64,12 @@ def train(outdir='.', pattern='', model_name='dcgan',
     crop_h = kw.get('crop_h', None)
     crop_w = kw.get('crop_w', None)
     seed = kw.get('seed', None)
+    nb_discr_updates = kw.get('nb_discriminator_updates', 1)
+    nb_gen_updates = kw.get('nb_generator_updates', 1)
+    algo = kw.get('algo', 'adam')
+    eps = kw.get('eps', 0)
     np.random.seed(seed)
+
     def resize_input(X, wh):
         w, h = wh
         if apply_crop:
@@ -153,7 +160,9 @@ def train(outdir='.', pattern='', model_name='dcgan',
     p_gen = layers.get_output(out_discr, {x_in: X_gen} )
 
     # cost of discr : predict 0 for gen and 1 for real
+    p_real = theano.tensor.clip(p_real, eps, 1 - eps)
     d_cost_real = T.nnet.binary_crossentropy(p_real, T.ones(p_real.shape)).mean()
+    p_gen = theano.tensor.clip(p_gen, eps, 1 - eps)
     d_cost_gen = T.nnet.binary_crossentropy(p_gen, T.zeros(p_gen.shape)).mean()
 
     # cost of gen : make the discr predict 1 for gen
@@ -170,8 +179,14 @@ def train(outdir='.', pattern='', model_name='dcgan',
     discrim_params = layers.get_all_params(out_discr, trainable=True)
     gen_params = layers.get_all_params(out_gen, trainable=True)
 
-    d_updates = updates.adam(d_cost + d_cost_reg, discrim_params, learning_rate=lr, beta1=b1)
-    g_updates = updates.adam(g_cost + g_cost_reg, gen_params, learning_rate=lr, beta1=b1)
+    algo_kw = {'learning_rate': lr}
+    if algo == 'adam':
+        algo_kw['beta1'] = b1
+
+    algo = {'adam': updates.adam, 'adadelta': updates.adadelta}[algo]
+
+    d_updates = algo(d_cost + d_cost_reg, discrim_params, **algo_kw)
+    g_updates = algo(g_cost + g_cost_reg, gen_params, **algo_kw)
 
     all_updates = d_updates.copy()
     all_updates.update(g_updates)
@@ -199,10 +214,19 @@ def train(outdir='.', pattern='', model_name='dcgan',
                 train_X = rescale_input(train_X)
             train_X = preprocess_input(train_X)
             train_Z = floatX(rng.uniform(-1., 1., size=(len(train_X), z_dim)))
-            if n_updates % 2 == 0:
+
+            #if n_updates % update_discr_each == 0:
+            #    total_d_loss += train_d(train_X, train_Z)[1]
+            #    nb_g_updates += 1
+            #else:
+            #    total_g_loss += train_g(train_X, train_Z)[0]
+            #    nb_d_updates += 1
+
+            for i in range(nb_discr_updates):
                 total_d_loss += train_d(train_X, train_Z)[1]
-                nb_g_updates += 1
-            else:
+                nb_d_updates += 1
+
+            for i in range(nb_gen_updates):
                 total_g_loss += train_g(train_X, train_Z)[0]
                 nb_d_updates += 1
 
@@ -250,6 +274,7 @@ def train(outdir='.', pattern='', model_name='dcgan',
     save_model(builder, builder_args, out_gen, out_discr, model_filename)
     return history
 
+
 def save_model(builder, args, net_gen, net_discr, filename):
     data = dict(
         builder=builder,
@@ -259,6 +284,7 @@ def save_model(builder, args, net_gen, net_discr, filename):
     )
     with open(filename, "w") as fd:
         dill.dump(data, fd)
+
 
 def load_model(filename, **kw):
     with open(filename, "r") as fd:
@@ -271,6 +297,7 @@ def load_model(filename, **kw):
     layers.set_all_param_values(gen, data['generator_weights'])
     layers.set_all_param_values(discr, data['discrimimator_weights'])
     return res
+
 
 def dump_model(filename, dest_filename, **kw):
     import pickle

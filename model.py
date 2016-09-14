@@ -1,7 +1,7 @@
 from lasagne import layers, init
 from lasagne.nonlinearities import rectify, sigmoid, linear, tanh, LeakyRectify, elu
 import theano.tensor as T
-from layers import DenseCondConcat, ConvCondConcat, GenericBrushLayer, Repeat, TensorDenseLayer
+from layers import DenseCondConcat, ConvCondConcat, GenericBrushLayer, Repeat, TensorDenseLayer, TensorLayer
 from lasagne.layers import batch_norm, Conv2DLayer
 from helpers import Deconv2DLayer, Deconv2DLayerScaler
 
@@ -40,7 +40,10 @@ def brush(z_dim=100, w=64, h=64, c=1):
         nonlinearity=leaky_rectify,
         W=init.Normal(mean=0, std=scale)
     )
-
+    # Mini-batch discrimiation (improved gan)
+    B = 10
+    C = 30
+    X = minibatch_discr(X, B=B, C=C)
     X = layers.DenseLayer(
         X,
         1,
@@ -65,7 +68,7 @@ def brush(z_dim=100, w=64, h=64, c=1):
 
     Z = Repeat(Z, n_steps)
     Z = layers.LSTMLayer(Z, 500)
-    l_coord = TensorDenseLayer(Z, 5, nonlinearity=linear, name="coord")
+    l_coord = TensorDenseLayer(Z, 2, nonlinearity=linear, name="coord")
 
     patches = np.ones((1, c, patch_size, patch_size))
     patches = patches.astype(np.float32)
@@ -109,7 +112,12 @@ def brush(z_dim=100, w=64, h=64, c=1):
 def dcgan(z_dim=100, w=64, h=64, c=1,
           num_filters_g=1024,  #start by this and divide by 2 after each layer (stop at num_filters_d)
           num_filters_d=128,   #start  by this and double after each layer (stop at num_filters_g)
-          start_w=4, start_h=4, filter_size=5, do_batch_norm=True,
+          start_w=4, start_h=4,
+          filter_size=5,
+          do_batch_norm=True,
+          minibatch_discr=False,
+          minibatch_discr_B=100,
+          minibatch_discr_C=100,
           scale=0.02):
 
     assert 2**int(np.log2(w)) == w
@@ -136,6 +144,8 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
             X = batch_norm(X)
         num_filters_d *= 2
     X = batch_norm(X)
+    if minibatch_discr:
+        X = minibatch_discr(X, B=minibatch_discr_B, C=minibatch_discr_C)
     X = layers.DenseLayer(
         X,
         1,
@@ -652,3 +662,19 @@ if __name__ == '__main__':
     x_ex = np.random.uniform(size=(20, 3, 128, 128)).astype(np.float32)
     print(gen(z_ex).shape)
     print(discr(x_ex).shape)
+
+
+def minibatch_discr(X, B, C):
+    X = TensorLayer(X, (B, C))
+
+    def fn(x):
+        x_left = x[:,   None, :, :]  # ex, 1, B, C
+        x_right = x[None, :, :, :]   # 1, ex, B, C
+        c = T.abs_(x_left - x_right)  # ex, ex, B, C
+        c = c.sum(axis=3)   # ex, ex, B
+        c = T.exp(c)    #ex, ex,B
+        c = c.sum(axis=1)  # ex, B
+        return c
+
+    X = layers.ExpressionLayer(X, fn, output_shape='auto')
+    return X

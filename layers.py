@@ -441,3 +441,30 @@ class TensorDenseLayer(layers.Layer):
         if self.b is not None:
             activation = activation + self.b
         return self.nonlinearity(activation)
+
+
+class TensorLayer(layers.Layer):
+    def __init__(self,
+                 incoming,
+                 num_units,
+                 W=init.GlorotUniform(),
+                 **kwargs):
+        """
+        num_units : tuple describing the shape of the desired tensor W to multiply
+                    with each example vector.
+        performs the tensor multiplication X * W where X has shape (nb_examples, A)
+        and W has shape (A, B, C, D...) and returns an output with shape
+        (nb_examples, B, C, D...)
+        """
+        super(TensorLayer, self).__init__(incoming, **kwargs)
+        self.num_units = num_units
+        num_inputs = np.prod(self.input_shape[1:])
+        self.W = self.add_param(W, (num_inputs,) + num_units, name="W")
+
+    def get_output_shape_for(self, input_shape):
+        return (input_shape[0],) + self.num_units
+
+    def get_output_for(self, input, **kwargs):
+        input = input.flatten(2)
+        activation = T.tensordot(input, self.W, axes=[1, 0])
+        return activation
