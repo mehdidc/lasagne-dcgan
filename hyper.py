@@ -185,16 +185,42 @@ def hyperjob(run, where, job_id):
             for subset_ratio in (1,)
         )
         return list(jobs)
+    
+    def js7():
+        rng = np.random
+        def gen():
+            return dict(
+                        seed=42,
+                        lr=rng.choice((0.0002, 0.001, 0.00001, 0.00005,0.000001)),
+                        b1=0.5,
+                        epoch_start_decay=50,
+                        lr_decay=rng.choice((1, 0.97, 0.99, 0.9)),
+                        l2_coef=rng.choice((0, 1e-7, 1e-5, 1e-3)),
+                        nb_epochs=200,
+                        model=dict(scale=rng.choice(np.logspace(-4, -1, 5)),
+                                   patch_size=rng.choice((2, 3)),
+                                   n_steps=rng.randint(5, 40),
+                                   n_units=rng.randint(1, 5) * 100,
+                                   n_layers=rng.choice((1, 2, 3))
+                                  ),
+                        subset_ratio=1,
+                        dataset='mnist',
+                        w=28,
+                        h=28,
+                        c=1,
+                        model_name='brush')
+        jobs = [gen() for _ in range(10)]
+        return jobs
 
     def insert_jobs():
         nb = 0
-        jobs = list(js1())
-        nb += insert(js1(), 'js1')
-        nb += insert(js2(), 'js2')
-        nb += insert(js3(), 'js3')
-        nb += insert(js4(), 'js4')
-        nb += insert(js5(), 'js5')
-        nb += insert(js6(), 'js6')
+        #nb += insert(js1(), 'js1')
+        #nb += insert(js2(), 'js2')
+        #nb += insert(js3(), 'js3')
+        #nb += insert(js4(), 'js4')
+        #nb += insert(js5(), 'js5')
+        #nb += insert(js6(), 'js6')
+        nb += insert(js7(), 'js7')
         return nb
 
     def insert(jobs, where=''):

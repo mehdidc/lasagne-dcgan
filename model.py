@@ -4,7 +4,7 @@ import theano.tensor as T
 from layers import DenseCondConcat, ConvCondConcat, GenericBrushLayer, Repeat, TensorDenseLayer, TensorLayer
 from lasagne.layers import batch_norm, Conv2DLayer
 from helpers import Deconv2DLayer, Deconv2DLayerScaler
-
+from layers import LNGRULayer
 
 import theano
 import numpy as np
@@ -12,14 +12,10 @@ import numpy as np
 leaky_rectify = LeakyRectify(0.2)
 
 
-def brush(z_dim=100, w=64, h=64, c=1):
+def brush(z_dim=100, w=64, h=64, c=1, scale=0.05, patch_size=2, n_steps=20, n_units=300, n_layers=1):
 
     x_in = layers.InputLayer((None, c, w, h), name="input")
     z_in = layers.InputLayer((None, z_dim), name="z")
-
-    scale = 0.02
-    patch_size = 5
-    n_steps = 30
 
     # discrimimator
     X = x_in
@@ -40,34 +36,29 @@ def brush(z_dim=100, w=64, h=64, c=1):
         nonlinearity=leaky_rectify,
         W=init.Normal(mean=0, std=scale)
     )
+    """
     # Mini-batch discrimiation (improved gan)
-    B = 10
-    C = 30
+    B = 100
+    C = 100
     X = minibatch_discr(X, B=B, C=C)
+    """
     X = layers.DenseLayer(
         X,
         1,
-        W=init.Normal(std=scale),
+        W=init.Normal(mean=0, std=scale),
         nonlinearity=sigmoid,
     )
+
     out_discr = X
 
     # generator (brush)
     Z = z_in
-    Z = layers.DenseLayer(
-        Z, 128,
-        W=init.Normal(mean=0, std=scale),
-        nonlinearity=leaky_rectify
-    )
-    Z = batch_norm(Z)
-    Z = layers.DenseLayer(
-        Z, 256,
-        W=init.Normal(mean=0, std=scale),
-        nonlinearity=leaky_rectify)
-    Z = batch_norm(Z)
-
     Z = Repeat(Z, n_steps)
-    Z = layers.LSTMLayer(Z, 500)
+
+    recurrent = layers.GRULayer
+    
+    for i in range(n_layers):
+        Z = recurrent(Z, n_units)
     l_coord = TensorDenseLayer(Z, 2, nonlinearity=linear, name="coord")
 
     patches = np.ones((1, c, patch_size, patch_size))
@@ -80,11 +71,11 @@ def brush(z_dim=100, w=64, h=64, c=1):
         patches=patches,
         col='rgb' if c == 3 else 'grayscale',
         return_seq=False,
-        reduce_func=lambda x, y: x+y,
+        reduce_func=lambda prev, new: prev + new * (1 - prev),
         to_proba_func=T.nnet.softmax,
         normalize_func=T.nnet.sigmoid,
-        x_sigma=0.5,
-        y_sigma=0.5,
+        x_sigma=1,
+        y_sigma=1,
         x_stride=1,
         y_stride=1,
         patch_index=0,
@@ -100,7 +91,6 @@ def brush(z_dim=100, w=64, h=64, c=1):
         l_raw_out, scales=init.Constant(2.), name="scaled_output")
     l_biased_out = layers.BiasLayer(
         l_scaled_out, b=init.Constant(-1), name="biased_output")
-
     l_out = layers.NonlinearityLayer(
         l_biased_out,
         nonlinearity=sigmoid,
@@ -115,7 +105,7 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
           start_w=4, start_h=4,
           filter_size=5,
           do_batch_norm=True,
-          minibatch_discr=False,
+          do_minibatch_discr=False,
           minibatch_discr_B=100,
           minibatch_discr_C=100,
           scale=0.02):
@@ -144,7 +134,7 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
             X = batch_norm(X)
         num_filters_d *= 2
     X = batch_norm(X)
-    if minibatch_discr:
+    if do_minibatch_discr:
         X = minibatch_discr(X, B=minibatch_discr_B, C=minibatch_discr_C)
     X = layers.DenseLayer(
         X,
@@ -432,6 +422,9 @@ def dcgan_28x28(z_dim=100, w=28, h=28, c=1):
         nonlinearity=leaky_rectify
     )
     #X = batch_norm(X)
+
+    #X = minibatch_discr(X, B=minibatch_discr_B, C=minibatch_discr_C)
+ 
     X = layers.DenseLayer(
         X,
         1,
@@ -471,7 +464,7 @@ def dcgan_28x28(z_dim=100, w=28, h=28, c=1):
         filter_size=(5, 5),
         stride=2,
         pad=(5-1)/2,
-        nonlinearity=tanh
+        nonlinearity=sigmoid
     )
     out_gen = Z
     return x_in, z_in, out_gen, out_discr
@@ -672,7 +665,7 @@ def minibatch_discr(X, B, C):
         x_right = x[None, :, :, :]   # 1, ex, B, C
         c = T.abs_(x_left - x_right)  # ex, ex, B, C
         c = c.sum(axis=3)   # ex, ex, B
-        c = T.exp(c)    #ex, ex,B
+        c = T.exp(-c)    #ex, ex,B
         c = c.sum(axis=1)  # ex, B
         return c
 

@@ -141,7 +141,7 @@ def train(outdir='.', pattern='', model_name='dcgan',
             xdisp = X[:, :, :, 0:1]
         else:
             xdisp = X
-        xdis = xdisp[0:100]
+        xdisp = xdisp[0:100]
         img = dispims(xdisp[0:100], border=1)
         filename = os.path.join(outdir, 'real_data.png')
         imsave(filename, img)
@@ -154,9 +154,11 @@ def train(outdir='.', pattern='', model_name='dcgan',
     builder_args = dict(z_dim=z_dim, w=w, h=h, c=c)
     builder_args.update(kw.get('model', {}))
     x_in, z_in, out_gen, out_discr = builder(**builder_args)
+
     X_gen = layers.get_output(out_gen, {z_in: Z} )
 
     p_real = layers.get_output(out_discr, {x_in: X_real} )
+    pred_discr = theano.function([X_real], p_real)
     p_gen = layers.get_output(out_discr, {x_in: X_gen} )
 
     # cost of discr : predict 0 for gen and 1 for real
@@ -228,7 +230,7 @@ def train(outdir='.', pattern='', model_name='dcgan',
 
             for i in range(nb_gen_updates):
                 total_g_loss += train_g(train_X, train_Z)[0]
-                nb_d_updates += 1
+                nb_g_updates += 1
 
             if n_updates % 1000 == 0:
                 nb_samples = 400
@@ -240,9 +242,13 @@ def train(outdir='.', pattern='', model_name='dcgan',
 
         stats = OrderedDict()
         stats['epoch'] = epoch
+        assert nb_g_updates > 0 and nb_d_updates > 0
         stats['g_loss'] = total_g_loss / nb_g_updates
         stats['d_loss'] = total_d_loss / nb_d_updates
         stats['train_time'] = time() - t
+        sample_Z = floatX(rng.uniform(-1., 1., size=(128, z_dim)))
+        sample_X = gen(sample_Z)
+        stats['pred_acc'] = (pred_discr(sample_X) < 0.5).mean()
         history.append(stats)
 
         print(tabulate([stats], 'keys'))
@@ -269,8 +275,9 @@ def train(outdir='.', pattern='', model_name='dcgan',
         a = [s['g_loss'] for s in history]
         b = [s['d_loss'] for s in history]
         pd.DataFrame({'g_loss': a, 'd_loss': b}).to_csv("{}/stats.csv".format(outdir))
-        if epoch_start_decay is not None and epoch >= epoch_start_decay:
+        if epoch_start_decay and epoch >= epoch_start_decay:
            lr.set_value(floatX(np.array(lr.get_value() * lr_decay)))
+           print('lr becomes : {}'.format(lr.get_value()))
     save_model(builder, builder_args, out_gen, out_discr, model_filename)
     return history
 
@@ -298,6 +305,12 @@ def load_model(filename, **kw):
     layers.set_all_param_values(discr, data['discrimimator_weights'])
     return res
 
+
+@click.command()
+@click.option('--source', help='src', required=True)
+@click.option('--dest', help='dst', required=True)
+def dump(source, dest):
+    dump_model(source, dest)
 
 def dump_model(filename, dest_filename, **kw):
     import pickle
