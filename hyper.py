@@ -281,9 +281,9 @@ def runhyper(run, where, job_id, dry):
                 db.modify_state_of(j['summary'], PENDING)
         print('starting to run')
         for j in jobs:
-
             kw = j['content']
             kw['outdir'] = j['outdir']
+            db.modify_state_of(j['summary'], RUNNING)
             hist = train(**kw)
             if not dry:
                 db.update({'hist': hist}, j['summary'])
