@@ -178,20 +178,36 @@ class GenericBrushLayer(layers.Layer):
                  x_max='width',
                  y_min=0,
                  y_max='height',
+                 w_left_pad=0,
+                 w_right_pad=0,
+                 h_left_pad=0,
+                 h_right_pad=0,
+                 color_min=0,
+                 color_max=1,
+                 stride_normalize=False,
                  eps=0,
+                 learn_patches=False,
+                 coords='continuous',
                  **kwargs):
         """
         w : width of resulting image
         h : height of resulting image
         patches : (nb_patches, color, ph, pw)
         col : 'grayscale'/'rgb' or give the nb of channels as an int
-        n_steps : int
-        return_seq : True returns the seq (nb_examples, n_steps, c, h, w)
-                    False returns (nb_examples, -1, c, h, w)
+        n_steps : int, nb of time steps
+        return_seq : if True returns the seq (nb_examples, n_steps, c, h, w)
+                     if False returns (nb_examples, -1, c, h, w)
         reduce_func : function used to update the output, takes prev
                       output as first argument and new output
                       as second one.
-        normalize_func : function used to normalize between 0 and 1
+        normalize_func : if a function, it is used to normalize between 0 and 1 for :
+                            - coordinates
+                            - stride if stride=='predicted' (for x and y)
+                            - sigma if sigma=='predicted' (for x and y)
+                            - color if it is ndarray
+                            - color if color=='predicted'. 
+                         if a dict, then specify functions separately:
+                            {'coords': ..., 'stride': ..., 'sigma': ..., 'color': }
         x_sigma : if 'predicted' taken from input else use the provided
                   value
         y_sigma : if 'predicted' taken from input else use the provided
@@ -206,15 +222,37 @@ class GenericBrushLayer(layers.Layer):
                      patches[patch_index]
         color : if 'predicted' taken from input then merge to patch colors.
                 if 'patch' then use patch colors only.
+                if ndarray, then we have a discrete number of learned colors,
+                and the array represents the initial colors and its shape
+                is (nb_colors, nb_col_channels).
+                
                 otherwise it should be a number if col is 'grayscale' or
                 a 3-tuple if col is 'rgb' and then then same color is
-                merged to the patches at all time steps.
+                merged to the patches at all time steps. 
+
         x_min : the minimum value for the coords in the w scale
         x_max : if 'width' it is equal to w, else use the provided value
 
         y_min : the minimum value for the coords in the w scale
         y_max : if 'height' it is equal to h, else use the provided value
+        
+        w_left_pad  : int/'half_patch'.
+                      augment virtually the resulting image with padding to take into account pixels outside
+                      the image to have proper normalization of Fx.
+                      if 'half_patch', then the padding is the half of the patch width so that a coordinate
+                      of 0, 0 with x_min=0 and x_max='width' will show the bottom right quarter of the patch
+        w_right_pad : same than w_left_pad but right of the image
+        h_left_pad  : like w_left_pad but for height
+        h_right_pad :  like w_right_pad but for height
 
+        color_min : min val of color. this and color_max can be helpful to implement negative colors, negative colors can be used
+                    to predicted delta color instead of color so that when canvas are summed up something like opacity could be implemented
+                    . for instance if we have two overlapping brushes (first is bigger than second) and we want want with color [1 0 0] and the second
+                    [0 1 0], what we can do is to predict the color [1 0 0] for the first and the color [-1 1 0] for the second so that the red
+                    component is cancelled.
+        color_max : max val of color
+        stride_normalize : if True multiply Fx by stride_x and Fy by stride_y, this is useful when summing canvas
+                           which has different strides, stride_nornalize makes canvas of different stride on the same scale.
         """
         super(GenericBrushLayer, self).__init__(incoming, **kwargs)
         self.incoming = incoming
@@ -229,7 +267,10 @@ class GenericBrushLayer(layers.Layer):
         self.return_seq = return_seq
 
         self.reduce_func = reduce_func
-        self.normalize_func = normalize_func
+        if not isinstance(normalize_func, dict):
+            self.normalize_func = defaultdict(lambda:normalize_func)
+        else:
+            self.normalize_func = normalize_func
         self.to_proba_func = to_proba_func
         self.x_sigma = x_sigma
         self.y_sigma = y_sigma
@@ -241,8 +282,40 @@ class GenericBrushLayer(layers.Layer):
         self.y_max = h if y_max == 'height' else y_max
         self.patch_index = patch_index
         self.color = color
-        self.eps = 0
+        self.learn_patches = learn_patches
+        self.w_left_pad = w_left_pad
+        self.w_right_pad = w_right_pad
+        self.h_left_pad = h_left_pad
+        self.h_right_pad = h_right_pad
+        self.color_min = color_min
+        self.color_max = color_max
+        self.stride_normalize = stride_normalize
+        self.coords = coords
 
+        if learn_patches:
+            if isinstance(self.patches, np.ndarray):
+                shape = self.patches.shape
+            else:
+                shape = self.patches.get_value().shape
+            assert shape[1] == self.nb_col_channels
+            self.ph, self.pw = shape[2:]
+            self.patches_ = self.add_param(self.patches, shape, name="patches")
+        else:
+            if isinstance(self.patches, np.ndarray):
+                shape = self.patches.shape
+            else:
+                shape = self.patches.get_value().shape
+            assert shape[1] == self.nb_col_channels
+            self.ph, self.pw = shape[2:]
+            self.patches_ = theano.shared(self.patches)
+
+        if isinstance(self.color, np.ndarray):
+            assert self.color.shape[1] == self.nb_col_channels
+            self.colors_ = self.add_param(self.color, self.color.shape, name="colors")
+        elif isinstance(self.color, theano.compile.SharedVariable):
+            assert self.color.get_value().shape[1] == self.nb_col_channels
+            self.colors_ = self.add_param(self.color, self.color.get_value().shape, name="colors")
+        self.eps = eps
         self._nb_input_features = incoming.output_shape[2]
         self.assign_ = {}
 
@@ -257,45 +330,97 @@ class GenericBrushLayer(layers.Layer):
         w = self.w
         h = self.h
         nb_patches = self.patches.shape[0]
-        ph = self.patches.shape[2]
-        pw = self.patches.shape[3]
+        ph = self.ph
+        pw = self.pw
         nb_features = self._nb_input_features
-
-        gx, gy = X[:, 0], X[:, 1]
-
-        gx = self.normalize_func(gx) * self.x_max + self.x_min
-        gy = self.normalize_func(gy) * self.y_max + self.y_min
-
-        pointer = 2
+        pointer = 0
+        if self.coords == 'continuous':
+            gx, gy = X[:, 0], X[:, 1]
+            gx = self.normalize_func['coords'](gx) * (self.x_max - self.x_min) + self.x_min
+            gy = self.normalize_func['coords'](gy) * (self.y_max - self.y_min) + self.y_min
+            self.assign_['gx'] = 0
+            self.assign_['gy'] = 1
+            pointer += 2
+        elif self.coords == 'discrete':
+            nx = self.x_max - self.x_min
+            cx = theano.shared(np.linspace(0, 1, nx).astype(np.float32))
+            gx_pr = X[:, pointer:pointer + nx]
+            gx_pr = self.to_proba_func(gx_pr)
+            gx = T.dot(gx_pr, cx)
+            gx = gx * (self.x_max - self.x_min) + self.x_min
+            self.assign_['gx'] = (pointer, pointer + nx)
+            pointer += nx
+            ny = self.y_max - self.y_min
+            cy = theano.shared(np.linspace(0, 1, ny).astype(np.float32))
+            gy_pr = X[:, pointer:pointer + ny]
+            gy_pr = self.to_proba_func(gy_pr)
+            gy = T.dot(gy_pr, cy)
+            gy = gy * (self.y_max - self.y_min) + self.y_min
+            self.assign_['gy'] = (pointer, pointer + ny)
+            pointer += ny
+        else:
+            raise Exception('invalid value : {} for coords'.format(self.coords))
         if self.x_stride == 'predicted':
             sx = X[:, pointer]
-            sx = self.normalize_func(gx) * self.x_max + self.x_min
+            sx = self.normalize_func['stride'](sx)
             self.assign_['x_stride'] = pointer
             pointer += 1
+        elif type(self.x_stride) == list:
+            xs = (np.array(self.x_stride).astype(np.float32))
+            xs_pr = X[:, pointer:pointer + len(xs)]
+            xs_pr = self.to_proba_func(xs_pr)
+            sx = T.dot(xs_pr, xs)
+            self.assign_['x_stride'] = (pointer, pointer + len(xs))
+            pointer += len(xs)
         else:
             sx = T.ones_like(gx) * self.x_stride
 
         if self.y_stride == 'predicted':
             sy = X[:, pointer]
-            sy = self.normalize_func(gy) * self.y_max + self.y_min
+            sy = self.normalize_func['stride'](sy)
             self.assign_['y_stride'] = pointer
             pointer += 1
+        elif type(self.y_stride) == list:
+            ys = (np.array(self.y_stride).astype(np.float32))
+            ys_pr = X[:, pointer:pointer + len(ys)]
+            ys_pr = self.to_proba_func(ys_pr)
+            sy = T.dot(ys_pr, ys)
+            self.assign_['y_stride'] = (pointer, pointer + len(ys))
+            pointer += len(ys)
         else:
             sy = T.ones_like(gy) * self.y_stride
 
         if self.x_sigma == 'predicted':
             log_x_sigma = X[:, pointer]
             x_sigma = T.exp(log_x_sigma)
+            x_sigma = self.normalize_func['sigma'](log_x_sigma) * pw
             self.assign_['x_sigma'] = pointer
             pointer += 1
+        elif type(self.x_sigma) == list:
+            xs = (np.array(self.x_sigma).astype(np.float32))
+            xs_pr = X[:, pointer:pointer + len(xs)]
+            xs_pr = self.to_proba_func(xs_pr) * xs
+            xs_pr = xs_pr.sum(axis=1)
+            x_sigma = xs_pr
+            self.assign_['x_sigma'] = (pointer, pointer + len(xs))
+            pointer += len(xs)
         else:
             x_sigma = T.ones_like(gx) * self.x_sigma
 
         if self.y_sigma == 'predicted':
             log_y_sigma = X[:, pointer]
             y_sigma = T.exp(log_y_sigma)
+            y_sigma = self.normalize_func['sigma'](log_y_sigma) * ph
             self.assign_['y_sigma'] = pointer
             pointer += 1
+        elif type(self.y_sigma) == list:
+            ys = (np.array(self.y_sigma).astype(np.float32))
+            ys_pr = X[:, pointer:pointer + len(ys)]
+            ys_pr = self.to_proba_func(ys_pr) * ys
+            ys_pr = ys_pr.sum(axis=1)
+            y_sigma = ys_pr
+            self.assign_['y_sigma'] = (pointer, pointer + len(ys))
+            pointer += len(ys)
         else:
             y_sigma = T.ones_like(gy) * self.y_sigma
 
@@ -305,24 +430,61 @@ class GenericBrushLayer(layers.Layer):
             pointer += nb_patches
         else:
             patch_index = self.patch_index
-
-        if self.color == 'predicted':
+        if isinstance(self.color, np.ndarray) or isinstance(self.color, theano.compile.SharedVariable):
+            if isinstance(self.color, theano.compile.SharedVariable):
+                shape = self.color.get_value().shape
+            else:
+                shape = self.color.shape
+            nb = shape[0]
+            colors_pr = X[:, pointer:pointer + nb]#(nb_examples, nb_colors)
+            colors_pr = self.to_proba_func(colors_pr) # (nb_examples, nb_colors)
+            colors_mix = colors_pr.dimshuffle(0, 1, 'x') * self.colors_.dimshuffle('x', 0, 1) #(nb_examples, nb_colors, 1) * (1, nb_colors, nb_col_channels) = (nb_examples, nb_colors, nb_col_channels)
+            colors = colors_mix.sum(axis=1) #(nb_examples, nb_col_channels)
+            colors = self.normalize_func['color'](colors) * (self.color_max - self.color_min) + self.color_min
+            self.assign_['color'] = (pointer, pointer + nb)
+            pointer += nb
+        elif self.color == 'predicted':
             colors = X[:, pointer:pointer + self.nb_col_channels]
-            colors = self.normalize_func(colors)
+            colors = self.normalize_func['color'](colors) * (self.color_max - self.color_min) + self.color_min
             self.assign_['color'] = (pointer, pointer + self.nb_col_channels)
             pointer += self.nb_col_channels
         elif self.color == 'patches':
-            colors = theano.shared(T.ones((1, 1, 1, 1)))
+            colors = T.ones((1, 1, 1, 1))
         else:
+            assert len(self.color) == self.nb_col_channels
             colors = self.color
 
-        assert nb_features >= pointer, "The number of input features to Brush should be {} insteaf of {} (or at least bigger)".format(pointer, nb_features)
+        assert nb_features >= pointer, "The number of input features to Brush should be {} instead of {} (or at least bigger)".format(pointer, nb_features)
+        
+        if self.w_left_pad and self.w_right_pad:
+            w_left_pad = self.w_left_pad
+            if w_left_pad == 'half_patch':
+                w_left_pad = pw / 2
+            w_right_pad = self.w_right_pad
+            if w_right_pad == 'half_patch':
+                w_right_pad = pw / 2
+            a, _ = np.indices((w + w_left_pad + w_right_pad, pw)) - w_left_pad
+        else:
+            w_left_pad = 0
+            w_right_pad = 0
+            a, _ = np.indices((w, pw))
 
-        a, _ = np.indices((w, pw))
         a = a.astype(np.float32)
         a = a.T
         a = theano.shared(a)
-        b, _ = np.indices((h, ph))
+
+        if self.w_left_pad and self.w_right_pad:
+            h_left_pad = self.h_left_pad
+            if h_left_pad == 'half_patch':
+                h_left_pad = ph / 2
+            h_right_pad = self.h_right_pad
+            if h_right_pad == 'half_patch':
+                h_right_pad = ph / 2
+            b, _ = np.indices((h + h_left_pad + h_right_pad, pw)) - h_left_pad
+        else:
+            h_left_pad = 0
+            h_right_pad = 0
+            b, _ = np.indices((h, ph))
         b = b.astype(np.float32)
         b = b.T
         b = theano.shared(b)
@@ -341,7 +503,10 @@ class GenericBrushLayer(layers.Layer):
 
         Fx = T.exp(-(a_ - ux_) ** 2 / (2 * x_sigma_ ** 2))
         Fx = Fx / (Fx.sum(axis=2, keepdims=True) + self.eps)
-
+        if self.stride_normalize:
+            Fx = Fx * sx.dimshuffle(0, 'x', 'x')
+        if w_left_pad and w_right_pad:
+            Fx = Fx[:, :, w_left_pad:-w_right_pad]
         uy = (gy.dimshuffle(0, 'x') +
               (T.arange(1, ph + 1) - ph/2. - 0.5) * sy.dimshuffle(0, 'x'))
         # shape of uy : (nb_examples, ph)
@@ -350,7 +515,12 @@ class GenericBrushLayer(layers.Layer):
         Fy = T.exp(-(b_ - uy_) ** 2 / (2 * y_sigma_ ** 2))
         # shape of Fy : (nb_examples, ph, h)
         Fy = Fy / (Fy.sum(axis=2, keepdims=True) + self.eps)
-        patches = theano.shared(self.patches)
+        if self.stride_normalize:
+            Fy = Fy * sy.dimshuffle(0, 'x', 'x')
+        if h_left_pad and h_right_pad:
+            Fy = Fy[:, :, h_left_pad:-h_right_pad]
+        
+        patches = self.patches_
         # patches : (nbp, c, ph, pw)
         # Fy : (nb_examples, ph, h)
         # Fx : (nb_examples, pw, w)
@@ -371,7 +541,9 @@ class GenericBrushLayer(layers.Layer):
             o = o[:, patch_index]
             # -> shape (nb_examples, c, h, w)
 
-        if self.color == 'predicted':
+        if isinstance(self.color, np.ndarray) or isinstance(self.color, theano.compile.SharedVariable):
+            o = o * colors.dimshuffle(0, 1, 'x', 'x')
+        elif self.color == 'predicted':
             o = o * colors.dimshuffle(0, 1, 'x', 'x')
         elif self.color == 'patches':
             pass
@@ -390,12 +562,11 @@ class GenericBrushLayer(layers.Layer):
             (self.nb_col_channels, self.h, self.w))
         init_val = T.zeros(output_shape)
         init_val = T.unbroadcast(init_val, 0, 1, 2, 3)
-        # the above is to avoid this error:
+        # the above single line is to avoid this error:
         # "an input and an output are associated with the same recurrent state
         # and should have the same type but have type 'CudaNdarrayType(float32,
         # (False, True, False, False))' and 'CudaNdarrayType(float32, 4D)'
         # respectively.'))"
-
         output, _ = recurrent_accumulation(
             # 'time' should be the first dimension
             input.dimshuffle(1, 0, 2),
@@ -408,6 +579,9 @@ class GenericBrushLayer(layers.Layer):
             return output
         else:
             return output[:, -1]
+
+def one_step_brush_layer(*args, **kwargs):
+    return GenericBrushLayer(n_steps=1, return_seq=False, *args, **kwargs)[:, 0, :, :, :]
 
 
 class TensorDenseLayer(layers.Layer):

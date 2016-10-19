@@ -12,8 +12,16 @@ import dill
 import model
 import click
 from tqdm import tqdm
-
 import pandas as pd
+import theano.tensor as T
+from lasagne.regularization import l2, regularize_network_params
+from time import time
+from skimage.io import imsave
+from skimage.io import imread_collection
+from skimage.transform import resize
+from data import load_data
+import json
+
 
 @click.command()
 @click.option('--outdir', default='.', help='Output directory', required=False)
@@ -28,18 +36,9 @@ import pandas as pd
 def traincollection(outdir, pattern, model_name, w, h, c, data_in_memory, dataset, params, **kw):
     train(outdir, pattern, model_name, w, h, c, data_in_memory, dataset, params, **kw)
 
-
 def train(outdir='.', pattern='', model_name='dcgan',
           w=64, h=64, c=1, data_in_memory=True,
           dataset='mnist', params='', **kw):
-    import theano.tensor as T
-    from lasagne.regularization import l2, regularize_network_params
-    from time import time
-    from skimage.io import imsave
-    from skimage.io import imread_collection
-    from skimage.transform import resize
-    from data import load_data
-    import json
     if params.endswith('.json'):
         kw.update(json.load(open(params)))
     elif params:
@@ -68,6 +67,8 @@ def train(outdir='.', pattern='', model_name='dcgan',
     nb_gen_updates = kw.get('nb_generator_updates', 1)
     algo = kw.get('algo', 'adam')
     eps = kw.get('eps', 0)
+    discr_loss = kw.get('discriminator_loss', 'cross_entropy')
+    nb_examples = kw.get('nb_examples')
     np.random.seed(seed)
 
     def resize_input(X, wh):
@@ -129,10 +130,17 @@ def train(outdir='.', pattern='', model_name='dcgan',
     # load data
     if pattern != '':
         X = imread_collection(pattern)
+        if nb_examples:
+            X = X[0:nb_examples]
+        X = np.array(X)
+        indices = np.arange(len(X))
+        np.random.shuffle(X)
     else:
         assert dataset != ''
         data_train, data_valid = load_data(dataset, training_subset=subset_ratio, valid_ratio=0, shuffle=kw.get('shuffle', True))
         X = data_train.X
+        if nb_examples:
+            X = X[0:nb_examples]
 
     if data_in_memory is True:
         if X[0].shape[0:2] != (w, h):
@@ -145,7 +153,7 @@ def train(outdir='.', pattern='', model_name='dcgan',
         img = dispims(xdisp[0:100], border=1)
         filename = os.path.join(outdir, 'real_data.png')
         imsave(filename, img)
-
+    print(X.shape)
     # compile net
     X_real = T.tensor4()
     Z = T.matrix()
@@ -157,26 +165,45 @@ def train(outdir='.', pattern='', model_name='dcgan',
 
     X_gen = layers.get_output(out_gen, {z_in: Z} )
 
-    p_real = layers.get_output(out_discr, {x_in: X_real} )
+    discr_layers = layers.get_all_layers(out_discr)
+    gen_layers = layers.get_all_layers(out_gen)
+    p_layer = out_discr
+    p_real = layers.get_output(p_layer, {x_in: X_real} )
     pred_discr = theano.function([X_real], p_real)
-    p_gen = layers.get_output(out_discr, {x_in: X_gen} )
+    p_gen = layers.get_output(p_layer, {x_in: X_gen} )
 
     # cost of discr : predict 0 for gen and 1 for real
     p_real = theano.tensor.clip(p_real, eps, 1 - eps)
     d_cost_real = T.nnet.binary_crossentropy(p_real, T.ones(p_real.shape)).mean()
     p_gen = theano.tensor.clip(p_gen, eps, 1 - eps)
     d_cost_gen = T.nnet.binary_crossentropy(p_gen, T.zeros(p_gen.shape)).mean()
-
-    # cost of gen : make the discr predict 1 for gen
-    g_cost_d = T.nnet.binary_crossentropy(p_gen, T.ones(p_gen.shape)).mean()
+    # cost of gen
+    if discr_loss == 'cross_entropy':
+        #cost of gen : make the discr predict 1 for gen
+        g_cost_d = T.nnet.binary_crossentropy(p_gen, T.ones(p_gen.shape)).mean()
+    elif discr_loss == 'feature_matching':
+        flatten_ = lambda x:x.reshape((x.shape[0], x.shape[1]*x.shape[2]*x.shape[3]))
+        def flatten(layer):
+            shape = (None, np.prod(layer.output_shape[1:]))
+            return layers.ExpressionLayer(layer, flatten_, output_shape=shape)
+        #cost of gen : match stats of real data
+        conv_layers = (layer for layer in discr_layers if 'conv' in layer.name)
+        conv_layers = map(flatten, conv_layers)
+        f_layer = layers.ConcatLayer(conv_layers, axis=1)
+        f_real = layers.get_output(f_layer, {x_in: X_real})
+        f_gen = layers.get_output(f_layer, {x_in: X_gen})
+        g_cost_d = ((f_real.mean(axis=1) - f_gen.mean(axis=1)) ** 2).mean()
+        print(discr_loss)
+    else:
+        raise ValueError()
 
     d_cost = d_cost_real + d_cost_gen
-    d_cost_reg = l2_coef * regularize_network_params(out_discr, l2)
-
     g_cost = g_cost_d
-    g_cost_reg = l2_coef * regularize_network_params(out_gen, l2)
-
+    
     cost = [g_cost, d_cost, g_cost_d, d_cost_real, d_cost_gen]
+
+    d_cost_reg = l2_coef * regularize_network_params(p_layer, l2)
+    g_cost_reg = l2_coef * regularize_network_params(out_gen, l2)
 
     discrim_params = layers.get_all_params(out_discr, trainable=True)
     gen_params = layers.get_all_params(out_gen, trainable=True)
@@ -216,13 +243,6 @@ def train(outdir='.', pattern='', model_name='dcgan',
                 train_X = rescale_input(train_X)
             train_X = preprocess_input(train_X)
             train_Z = floatX(rng.uniform(-1., 1., size=(len(train_X), z_dim)))
-
-            #if n_updates % update_discr_each == 0:
-            #    total_d_loss += train_d(train_X, train_Z)[1]
-            #    nb_g_updates += 1
-            #else:
-            #    total_g_loss += train_g(train_X, train_Z)[0]
-            #    nb_d_updates += 1
 
             for i in range(nb_discr_updates):
                 total_d_loss += train_d(train_X, train_Z)[1]

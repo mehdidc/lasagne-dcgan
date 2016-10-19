@@ -1,6 +1,7 @@
 import click
 from train import train
 import numpy as np
+import os
 
 def js1(rng):
     jobs = (
@@ -201,12 +202,66 @@ def js7(rng):
                     model_name='brush')
     return gen()
 
+def js8(rng):
+    def gen():
+        return dict(
+                    seed=42,
+                    lr=rng.choice((0.0002, 0.001, 0.00001, 0.00005,0.000001)),
+                    b1=0.5,
+                    epoch_start_decay=50,
+                    lr_decay=rng.choice((1, 0.97, 0.99, 0.9)),
+                    l2_coef=rng.choice((0, 1e-7, 1e-5, 1e-3)),
+                    nb_epochs=200,
+                    model=dict(scale=rng.choice(np.logspace(-4, -1, 5)),
+                               patch_size=rng.choice((2, 3)),
+                               n_steps=rng.randint(5, 40),
+                               n_units=rng.randint(1, 5) * 100,
+                               n_layers=rng.choice((1, 2, 3))
+                              ),
+                    subset_ratio=1,
+                    dataset='mnist',
+                    w=16,
+                    h=16,
+                    c=1,
+                    model_name='brush')
+    return gen()
+
+
+def js9(rng):
+    def gen():
+        return dict(
+                    seed=42,
+                    lr=rng.choice((0.0002, 0.001, 0.00001, 0.00005,0.000001)),
+                    b1=0.5,
+                    epoch_start_decay=50,
+                    lr_decay=rng.choice((1, 0.97, 0.99, 0.9)),
+                    l2_coef=rng.choice((0, 1e-7, 1e-5, 1e-3)),
+                    nb_epochs=200,
+                    model=dict(scale=rng.choice(np.logspace(-4, -1, 5)),
+                               patch_size=rng.choice((2, 3)),
+                               n_steps=rng.randint(5, 40),
+                               n_units=rng.randint(1, 5) * 100,
+                               n_layers=rng.choice((1, 2, 3))
+                              ),
+                    subset_ratio=1,
+                    pattern=os.getenv('DATA_PATH') + '/celeba/**/*.png',
+                    nb_examples=10000,
+                    discriminator_loss='feature_matching',
+                    w=64,
+                    h=64, 
+                    c=3,
+                    model_name='dcgan')
+    return gen()
+
+
+
 
 @click.command()
 @click.option('--run', default=0, help='nb jobs to run', required=False)
 @click.option('--where', default=None, help='where to run', required=False)
 @click.option('--job_id', default=None, help='list of ids separated by ,', required=False)
-def runhyper(run, where, job_id):
+@click.option('--dry/--no-dry', default=False, help='if True modify the state of db', required=False)
+def runhyper(run, where, job_id, dry):
     from lightjob.cli import load_db
     from lightjob.db import SUCCESS, RUNNING, AVAILABLE, PENDING
     from lightjob.utils import summarize
@@ -223,19 +278,20 @@ def runhyper(run, where, job_id):
         if nb is not None:
             jobs = jobs[0:nb]
         for j in jobs:
-            db.modify_state_of(j['summary'], PENDING)
+            if not dry:
+                db.modify_state_of(j['summary'], PENDING)
         print('starting to run')
         for j in jobs:
-            db.modify_state_of(j['summary'], RUNNING)
+            if not dry:
+                db.modify_state_of(j['summary'], RUNNING)
             kw = j['content']
             kw['outdir'] = j['outdir']
             hist = train(**kw)
-            db.update({'hist': hist}, j['summary'])
-            db.modify_state_of(j['summary'], SUCCESS)
-
+            if not dry:
+                db.update({'hist': hist}, j['summary'])
+                db.modify_state_of(j['summary'], SUCCESS)
     db = load_db()
     run_jobs(nb=run, where=where, job_id=job_id)
-
 
 @click.command()
 @click.option('--where', default=None, help='where', required=False)

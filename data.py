@@ -11,7 +11,6 @@ def load_data(name, **kw):
     from lasagnekit.datasets.insects import Insects
     from lasagnekit.datasets.rescaled import Rescaled
     from lasagnekit.datasets.chairs import Chairs
-
     if name == 'mnist':
         data = MNIST()
         data.load()

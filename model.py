@@ -11,7 +11,6 @@ import numpy as np
 
 leaky_rectify = LeakyRectify(0.2)
 
-
 def brush(z_dim=100, w=64, h=64, c=1, scale=0.05, patch_size=2, n_steps=20, n_units=300, n_layers=1):
 
     x_in = layers.InputLayer((None, c, w, h), name="input")
@@ -37,7 +36,7 @@ def brush(z_dim=100, w=64, h=64, c=1, scale=0.05, patch_size=2, n_steps=20, n_un
         W=init.Normal(mean=0, std=scale)
     )
     """
-    # Mini-batch discrimiation (improved gan)
+    # Mini-batch discrimiation (improved gan paper)
     B = 100
     C = 100
     X = minibatch_discr(X, B=B, C=C)
@@ -114,8 +113,8 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
     assert 2**int(np.log2(h)) == h
 
     nb_layers = int(np.log2(w) - np.log2(start_w))
-    x_in = layers.InputLayer((None, c, w, h), name="input")
-    z_in = layers.InputLayer((None, z_dim), name="z")
+    x_in = layers.InputLayer((None, c, w, h), name="x_in")
+    z_in = layers.InputLayer((None, z_dim), name="z_in")
 
     nonlin_discr = leaky_rectify
     nonlin_gen = rectify
@@ -128,7 +127,8 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
             filter_size=(filter_size, filter_size),
             stride=2,
             nonlinearity=nonlin_discr,
-            W=init.Normal(mean=0, std=scale)  # 1 for gain
+            W=init.Normal(mean=0, std=scale),
+            name='conv{}'.format(i + 1)
         )
         if do_batch_norm and i > 0:
             X = batch_norm(X)
@@ -141,6 +141,7 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
         1,
         W=init.Normal(std=scale),
         nonlinearity=sigmoid,
+        name='out'
     )
     out_discr = X
 
@@ -149,7 +150,7 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
         z_in,
         num_filters_g*start_w*start_h,
         nonlinearity=nonlin_gen,
-        W=init.Normal(std=scale)
+        W=init.Normal(std=scale),
     )
     if do_batch_norm:
         Z = batch_norm(Z)
@@ -166,7 +167,8 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
             stride=2,
             nonlinearity=nonlin_gen,
             pad=(filter_size - 1) / 2,
-            W=init.Normal(mean=0, std=scale)
+            W=init.Normal(mean=0, std=scale),
+            name='upconv{}'.format(i + 1)
         )
         if do_batch_norm:
             Z = batch_norm(Z)
@@ -177,9 +179,9 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
         stride=2,
         nonlinearity=sigmoid,
         pad=(filter_size - 1) / 2,
-        W=init.Normal(std=scale)  # 1 for gain
+        W=init.Normal(std=scale),
+        name='out'
     )
-    print(Z.output_shape)
     out_gen = Z
     return x_in, z_in, out_gen, out_discr
 
@@ -561,7 +563,6 @@ def dcgan_64x64(z_dim=100, w=64, h=64, c=1):
     )
     out_gen = Z
     return x_in, z_in, out_gen, out_discr
-
 
 if __name__ == '__main__':
 
