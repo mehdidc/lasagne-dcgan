@@ -4,6 +4,7 @@ import theano
 import theano.tensor as T
 #from sparsemax_theano import sparsemax
 import numpy as np
+from collections import defaultdict
 
 DenseCondConcat = layers.ConcatLayer
 
