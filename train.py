@@ -30,7 +30,7 @@ import json
 @click.option('--w', default=64, help='rescale images to a width of w', required=False)
 @click.option('--h', default=64, help='rescale images to a height of h', required=False)
 @click.option('--c', default=3, help='1 if grayscale images otherwise 3', required=False)
-@click.option('--data-in-memory/--no-data-in-memory', default=True, help='', required=False)
+@click.option('--data-in-memory/--no-data-in-memory', default=False, help='', required=False)
 @click.option('--dataset', default='', help='only if pattern is not provided', required=False)
 @click.option('--params', default='', help='only if pattern is not provided', required=False)
 def traincollection(outdir, pattern, model_name, w, h, c, data_in_memory, dataset, params, **kw):
