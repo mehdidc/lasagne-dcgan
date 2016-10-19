@@ -36,9 +36,13 @@ import json
 def traincollection(outdir, pattern, model_name, w, h, c, data_in_memory, dataset, params, **kw):
     train(outdir, pattern, model_name, w, h, c, data_in_memory, dataset, params, **kw)
 
-def train(outdir='.', pattern='', model_name='dcgan',
-          w=64, h=64, c=1, data_in_memory=True,
-          dataset='mnist', params='', **kw):
+def train(outdir='.', 
+          pattern='',
+          model_name='dcgan',
+          w=64, h=64, c=1, 
+          data_in_memory=True,
+          dataset='mnist', 
+          params='', **kw):
     if params.endswith('.json'):
         kw.update(json.load(open(params)))
     elif params:

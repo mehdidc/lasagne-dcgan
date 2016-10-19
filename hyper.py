@@ -1,5 +1,4 @@
 import click
-from train import train
 import numpy as np
 import os
 
@@ -226,42 +225,42 @@ def js8(rng):
                     model_name='brush')
     return gen()
 
-
 def js9(rng):
-    def gen():
-        return dict(
-                    seed=42,
-                    lr=rng.choice((0.0002, 0.001, 0.00001, 0.00005,0.000001)),
-                    b1=0.5,
-                    epoch_start_decay=50,
-                    lr_decay=rng.choice((1, 0.97, 0.99, 0.9)),
-                    l2_coef=rng.choice((0, 1e-7, 1e-5, 1e-3)),
-                    nb_epochs=200,
-                    model=dict(scale=rng.choice(np.logspace(-4, -1, 5)),
-                               patch_size=rng.choice((2, 3)),
-                               n_steps=rng.randint(5, 40),
-                               n_units=rng.randint(1, 5) * 100,
-                               n_layers=rng.choice((1, 2, 3))
-                              ),
-                    subset_ratio=1,
-                    pattern=os.getenv('DATA_PATH') + '/celeba/**/*.png',
-                    nb_examples=10000,
-                    discriminator_loss='feature_matching',
-                    w=64,
-                    h=64, 
-                    c=3,
-                    model_name='dcgan')
-    return gen()
-
-
-
+    jobs = (
+        dict(
+            lr=lr,
+            b1=b1,
+            nb_epochs=100,
+            model=dict(scale=scale,
+                       num_filters_g=num_filters_g,
+                       num_filters_d=num_filters_d,
+                       start_w=4,
+                       start_h=4,
+                       filter_size=5,
+                       do_batch_norm=True),
+            subset_ratio=1,
+            pattern=os.getenv('DATA_PATH') + '/celeba/**/*.png',
+            nb_examples=100000,
+            discriminator_loss='feature_matching',
+            w=64,
+            h=64, 
+            c=3,
+            model_name='dcgan')
+        for scale in np.logspace(-4, -1, 5)
+        for num_filters_g in [32, 64, 128]
+        for num_filters_d in [4,  8, 16]
+        for lr in (0.0002,)
+        for b1 in (0.5,)
+    )
+    return rng.choice(list(jobs))
 
 @click.command()
 @click.option('--run', default=0, help='nb jobs to run', required=False)
 @click.option('--where', default=None, help='where to run', required=False)
 @click.option('--job_id', default=None, help='list of ids separated by ,', required=False)
-@click.option('--dry/--no-dry', default=False, help='if True modify the state of db', required=False)
+@click.option('--dry/--no-dry', default=False, help='if dry is True dont modify the state of db', required=False)
 def runhyper(run, where, job_id, dry):
+    from train import train
     from lightjob.cli import load_db
     from lightjob.db import SUCCESS, RUNNING, AVAILABLE, PENDING
     from lightjob.utils import summarize
@@ -282,8 +281,7 @@ def runhyper(run, where, job_id, dry):
                 db.modify_state_of(j['summary'], PENDING)
         print('starting to run')
         for j in jobs:
-            if not dry:
-                db.modify_state_of(j['summary'], RUNNING)
+
             kw = j['content']
             kw['outdir'] = j['outdir']
             hist = train(**kw)
@@ -300,16 +298,14 @@ def inserthyper(where, nb):
     from lightjob.cli import load_db
     from lightjob.db import SUCCESS, RUNNING, AVAILABLE, PENDING
     from lightjob.utils import summarize
-
-    
     rng = np.random
     js = globals()[where]
     jobs = [js(rng) for _ in range(nb)]
     nb = 0
-
     db = load_db()
     for content in jobs:
         s = summarize(content)
+        print(s)
         outdir = 'results/{}'.format(s)
         nb += db.safe_add_job(content, outdir=outdir, where=where)
     print('{} of jobs inserted'.format(nb))
