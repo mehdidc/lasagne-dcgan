@@ -10,6 +10,10 @@ import theano
 import numpy as np
 
 leaky_rectify = LeakyRectify(0.2)
+nonlins = {
+    'sigmoid': sigmoid,
+    'tanh': tanh
+}
 
 def brush(z_dim=100, w=64, h=64, c=1, scale=0.05, patch_size=2, n_steps=20, n_units=300, n_layers=1):
 
@@ -107,8 +111,10 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
           do_minibatch_discr=False,
           minibatch_discr_B=100,
           minibatch_discr_C=100,
+          nonlin_out='sigmoid',
           scale=0.02):
 
+    nonlin_out = nonlins[nonlin_out]
     assert 2**int(np.log2(w)) == w
     assert 2**int(np.log2(h)) == h
 
@@ -177,7 +183,7 @@ def dcgan(z_dim=100, w=64, h=64, c=1,
         num_filters=c,
         filter_size=(filter_size, filter_size),
         stride=2,
-        nonlinearity=sigmoid,
+        nonlinearity=nonlin_out,
         pad=(filter_size - 1) / 2,
         W=init.Normal(std=scale),
         name='out'

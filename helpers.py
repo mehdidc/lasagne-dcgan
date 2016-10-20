@@ -1,13 +1,8 @@
+from functools import partial
+from skimage.transform import resize
 from lasagne import init
 import numpy as np
 import os
-
-import lasagne
-import theano.tensor as T
-import theano
-from lasagne.layers import Deconv2DLayer as DeconvLasagne
-from lasagne.layers import batch_norm, Conv2DLayer
-from lasagne.nonlinearities import linear
 
 import theano
 import theano.tensor as T
@@ -18,13 +13,19 @@ from theano.sandbox.cuda.basic_ops import (as_cuda_ndarray_variable,
 from theano.sandbox.cuda.dnn import GpuDnnConvDesc, GpuDnnConv, GpuDnnConvGradI, dnn_conv, dnn_pool
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
+import lasagne
+from lasagne.layers import Deconv2DLayer as DeconvLasagne
+from lasagne.layers import batch_norm, Conv2DLayer
+from lasagne.nonlinearities import linear
 
 def floatX(x):
-    return x.astype(np.float32)
+    return np.array(x).astype(theano.config.floatX)
 
 def to_categorical(y, nb_classes=None):
-    '''Convert class vector (integers from 0 to nb_classes)
-    to binary class matrix, for use with categorical_crossentropy.
+    '''
+    Convert class vector (integers from 0 to nb_classes)
+    to binary class matrix, for use with 
+    categorical_crossentropy.
     '''
     if not nb_classes:
         nb_classes = np.max(y)+1
@@ -53,16 +54,17 @@ def mkdir_path(path):
     if not os.access(path, os.F_OK):
         os.makedirs(path)
 
-def dispims(M, border=0, bordercolor=[0.0, 0.0, 0.0], shape = None):
+def dispims(M, border=0, bordercolor=[0.0, 0.0, 0.0], shape = None, normalize=False):
     """ Display an array of rgb images.
     The input array is assumed to have the shape numimages x numpixelsY x numpixelsX x 3
     """
     bordercolor = np.array(bordercolor)[None, None, :]
     numimages = len(M)
     M = M.copy()
-    for i in range(M.shape[0]):
-        M[i] -= M[i].flatten().min()
-        M[i] /= M[i].flatten().max()
+    if normalize:
+        for i in range(M.shape[0]):
+            M[i] -= M[i].flatten().min()
+            M[i] /= M[i].flatten().max()
     height, width, color = M[0].shape
     if color == 1:
         M = M[:, :, :, :] * np.ones((1, 1, 1, 3))
@@ -170,3 +172,31 @@ def Deconv2DLayerScaler(incoming, num_filters, filter_size, stride=1, pad=0, non
     #l.params[l.W] = set()
     #l.params[l.b] = set()
     return l
+
+def crop(x, target_w, target_h):
+    w, h = x.shape[0:2]
+    if h >= target_h:
+        a = (h - target_h) / 2
+        b = h - target_h - a
+        x = x[a:-b]
+    if w >= target_w:
+        a = (w - target_w) / 2
+        b = w - target_w - a
+        x = x[:, a:-b]
+    return x
+
+resize = partial(resize, preserve_range=True)
+def resize_dataset(X, wh):
+    w, h, c = X.shape[1:]
+    ww, hh = wh
+    # assumes X has shape (B, w, h, c) and returns (B, ww, hh, c)
+    X_rescaled = np.empty((len(X), ww, hh, c))
+    for i in range(len(X)):
+        Xi = np.array(X[i])
+        if len(Xi.shape) == 3:
+            Xi = Xi[:, :, 0:c]
+            X_rescaled[i] = resize(Xi, (ww, hh))
+        else:
+            X_rescaled[i, :, :, 0] = resize(Xi, (ww, hh))
+    X_rescaled = floatX(X_rescaled) / X_rescaled.max()
+    return X_rescaled
